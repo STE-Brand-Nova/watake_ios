@@ -2,7 +2,6 @@
 # Run: `swiftformat .` (also runs in pre-commit).
 
 --swiftversion 5.10
---cache ignore
 
 # Target only source directories
 --exclude .build,DerivedData,Pods,vendor,**/.build,**/*.generated.swift

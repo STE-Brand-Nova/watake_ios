@@ -3,7 +3,7 @@ pre-commit:
   commands:
     swiftformat:
       glob: "*.swift"
-      run: swiftformat {staged_files} --config .swiftformat
+      run: swiftformat {staged_files} --config .swiftformat --cache ignore
       stage_fixed: true
     swiftlint:
       glob: "*.swift"
