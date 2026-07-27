@@ -1,0 +1,7 @@
+#include "Base.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watake
+APP_DISPLAY_NAME = Watake
+WATAKE_ENVIRONMENT = production
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) WATAKE_PROD
+

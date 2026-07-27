@@ -7,9 +7,8 @@
 
 import XCTest
 
-final class watakeUITestsLaunchTests: XCTestCase {
-
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
+final class WatakeUITestsLaunchTests: XCTestCase {
+    override static var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
 
@@ -18,7 +17,7 @@ final class watakeUITestsLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testLaunch() throws {
+    func testLaunch() {
         let app = XCUIApplication()
         app.launch()
 

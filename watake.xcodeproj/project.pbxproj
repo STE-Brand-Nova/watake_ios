@@ -24,6 +24,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0DE00010000000000000001 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		C0DE00020000000000000002 /* Dev.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Dev.xcconfig; sourceTree = "<group>"; };
+		C0DE00030000000000000003 /* Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Staging.xcconfig; sourceTree = "<group>"; };
+		C0DE00040000000000000004 /* Prod.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Prod.xcconfig; sourceTree = "<group>"; };
 		66D93EC0301244A300039664 /* watake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = watake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		66D93ECF301244A500039664 /* watakeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = watakeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		66D93ED9301244A500039664 /* watakeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = watakeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -75,11 +79,23 @@
 		66D93EB7301244A300039664 = {
 			isa = PBXGroup;
 			children = (
+				C0DE00050000000000000005 /* Config */,
 				66D93EC2301244A300039664 /* watake */,
 				66D93ED2301244A500039664 /* watakeTests */,
 				66D93EDC301244A500039664 /* watakeUITests */,
 				66D93EC1301244A300039664 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		C0DE00050000000000000005 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				C0DE00010000000000000001 /* Base.xcconfig */,
+				C0DE00020000000000000002 /* Dev.xcconfig */,
+				C0DE00030000000000000003 /* Staging.xcconfig */,
+				C0DE00040000000000000004 /* Prod.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		66D93EC1301244A300039664 /* Products */ = {
@@ -269,7 +285,7 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		66D93EE1301244A500039664 /* Debug */ = {
+		66D93EE1301244A500039664 /* Debug-Dev */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -322,7 +338,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -331,9 +347,9 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
-			name = Debug;
+			name = "Debug-Dev";
 		};
-		66D93EE2301244A500039664 /* Release */ = {
+		66D93EE2301244A500039664 /* Release-Prod */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -380,7 +396,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -388,16 +404,13 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
-			name = Release;
+			name = "Release-Prod";
 		};
-		66D93EE4301244A500039664 /* Debug */ = {
+		66D93EE4301244A500039664 /* Debug-Dev */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C0DE00020000000000000002 /* Dev.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RKJRTR6K94;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -409,27 +422,20 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watake;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
-			name = Debug;
+			name = "Debug-Dev";
 		};
-		66D93EE5301244A500039664 /* Release */ = {
+		66D93EE5301244A500039664 /* Release-Prod */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C0DE00040000000000000004 /* Prod.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RKJRTR6K94;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -441,20 +447,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watake;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
-			name = Release;
+			name = "Release-Prod";
 		};
-		66D93EE7301244A500039664 /* Debug */ = {
+		66D93EE7301244A500039664 /* Debug-Dev */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -462,7 +464,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RKJRTR6K94;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watakeTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -474,9 +476,9 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/watake.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/watake";
 			};
-			name = Debug;
+			name = "Debug-Dev";
 		};
-		66D93EE8301244A500039664 /* Release */ = {
+		66D93EE8301244A500039664 /* Release-Prod */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -484,7 +486,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RKJRTR6K94;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watakeTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -496,9 +498,9 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/watake.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/watake";
 			};
-			name = Release;
+			name = "Release-Prod";
 		};
-		66D93EEA301244A500039664 /* Debug */ = {
+		66D93EEA301244A500039664 /* Debug-Dev */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -516,9 +518,9 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = watake;
 			};
-			name = Debug;
+			name = "Debug-Dev";
 		};
-		66D93EEB301244A500039664 /* Release */ = {
+		66D93EEB301244A500039664 /* Release-Prod */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -536,7 +538,107 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = watake;
 			};
-			name = Release;
+			name = "Release-Prod";
+		};
+		C0DE00100000000000000010 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = "Debug-Staging";
+		};
+		C0DE00110000000000000011 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C0DE00030000000000000003 /* Staging.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = "Debug-Staging";
+		};
+		C0DE00120000000000000012 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RKJRTR6K94;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watakeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/watake.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/watake";
+			};
+			name = "Debug-Staging";
+		};
+		C0DE00130000000000000013 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RKJRTR6K94;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watakeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = watake;
+			};
+			name = "Debug-Staging";
 		};
 /* End XCBuildConfiguration section */
 
@@ -544,38 +646,42 @@
 		66D93EBB301244A300039664 /* Build configuration list for PBXProject "watake" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66D93EE1301244A500039664 /* Debug */,
-				66D93EE2301244A500039664 /* Release */,
+				66D93EE1301244A500039664 /* Debug-Dev */,
+				C0DE00100000000000000010 /* Debug-Staging */,
+				66D93EE2301244A500039664 /* Release-Prod */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = "Release-Prod";
 		};
 		66D93EE3301244A500039664 /* Build configuration list for PBXNativeTarget "watake" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66D93EE4301244A500039664 /* Debug */,
-				66D93EE5301244A500039664 /* Release */,
+				66D93EE4301244A500039664 /* Debug-Dev */,
+				C0DE00110000000000000011 /* Debug-Staging */,
+				66D93EE5301244A500039664 /* Release-Prod */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = "Release-Prod";
 		};
 		66D93EE6301244A500039664 /* Build configuration list for PBXNativeTarget "watakeTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66D93EE7301244A500039664 /* Debug */,
-				66D93EE8301244A500039664 /* Release */,
+				66D93EE7301244A500039664 /* Debug-Dev */,
+				C0DE00120000000000000012 /* Debug-Staging */,
+				66D93EE8301244A500039664 /* Release-Prod */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = "Release-Prod";
 		};
 		66D93EE9301244A500039664 /* Build configuration list for PBXNativeTarget "watakeUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66D93EEA301244A500039664 /* Debug */,
-				66D93EEB301244A500039664 /* Release */,
+				66D93EEA301244A500039664 /* Debug-Dev */,
+				C0DE00130000000000000013 /* Debug-Staging */,
+				66D93EEB301244A500039664 /* Release-Prod */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = "Release-Prod";
 		};
 /* End XCConfigurationList section */
 	};

@@ -1,0 +1,56 @@
+name: PR verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    name: Commit and PR metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6
+      - name: Validate PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: echo "$PR_TITLE" | npx --yes --package @commitlint/cli commitlint
+
+  ios:
+    name: Lint, build, and test
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3.5"
+          bundler-cache: true
+      - name: Install Swift tools
+        run: brew install swiftlint swiftformat
+      - name: SwiftFormat
+        run: swiftformat --lint . --config .swiftformat
+      - name: SwiftLint
+        run: swiftlint lint --strict --no-cache --config .swiftlint.yml
+      - name: Tests
+        env:
+          SCAN_DEVICE: iPhone 17
+        run: bundle exec fastlane test
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: fastlane/test_output
+          if-no-files-found: ignore
+          retention-days: 7

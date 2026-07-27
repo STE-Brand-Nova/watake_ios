@@ -1,0 +1,58 @@
+# SwiftFormat config — https://github.com/nicklockwood/SwiftFormat
+# Run: `swiftformat .` (also runs in pre-commit).
+
+--swiftversion 5.10
+
+# Target only source directories
+--exclude .build,DerivedData,Pods,vendor,**/.build,**/*.generated.swift
+
+# --- Formatting ---
+--indent 4
+--tabwidth 4
+--maxwidth 140
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--wrapconditions after-first
+--closingparen balanced
+--commas inline
+--semicolons never
+--trimwhitespace always
+--emptybraces no-space
+
+# --- Style ---
+--self remove
+--selfrequired
+--stripunusedargs closure-only
+--redundanttype inferred
+--patternlet inline
+--ifdef indent
+--extensionacl on-declarations
+--markextensions always
+--marktypes if-not-empty
+--ranges spaced
+--operatorfunc spaced
+--elseposition same-line
+--guardelse same-line
+
+# --- Imports ---
+--importgrouping testable-bottom
+
+# --- Header ---
+--header ignore
+
+# --- Rules ---
+--enable isEmpty
+--enable sortImports
+--enable redundantSelf
+--enable redundantParens
+--enable redundantReturn
+--enable redundantVoidReturnType
+--enable strongOutlets
+--enable trailingCommas
+--enable wrapMultilineStatementBraces
+--enable blankLinesAtEndOfScope
+--enable blankLinesBetweenScopes
+
+--disable andOperator
+--disable wrapMultilineStatementBraces

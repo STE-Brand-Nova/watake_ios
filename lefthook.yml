@@ -1,0 +1,26 @@
+pre-commit:
+  parallel: false
+  commands:
+    swiftformat:
+      glob: "*.swift"
+      run: swiftformat {staged_files} --config .swiftformat --cache ignore
+      stage_fixed: true
+    swiftlint:
+      glob: "*.swift"
+      run: swiftlint lint --strict --no-cache --quiet --config .swiftlint.yml {staged_files}
+    gitleaks:
+      run: gitleaks protect --staged --redact --config .gitleaks.toml
+
+commit-msg:
+  commands:
+    commitlint:
+      run: commitlint --edit {1}
+
+pre-push:
+  commands:
+    gitleaks-full:
+      run: gitleaks detect --redact --config .gitleaks.toml
+
+skip_output:
+  - meta
+  - summary

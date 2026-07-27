@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: assertive
+  high_level_summary: true
+  request_changes_workflow: false
+  path_filters:
+    - "!**/*.xcuserstate"
+    - "!**/DerivedData/**"
+    - "!**/fastlane/test_output/**"
+  path_instructions:
+    - path: "**/*.swift"
+      instructions: |
+        Prioritize correctness, data loss, privacy, concurrency, accessibility,
+        and iPhone/iPad behavior. Flag files approaching 1000 lines and propose
+        a cohesive extraction. Require test seams around storage, OCR,
+        watermark rendering, and export logic.
+    - path: ".github/workflows/**"
+      instructions: |
+        Check least-privilege permissions, untrusted pull-request input,
+        secret exposure, action pinning, concurrency, timeouts, and cost.
+    - path: "fastlane/**"
+      instructions: |
+        Treat signing and App Store submission as high-risk. Verify that
+        credentials are environment-only and release actions are explicitly gated.
+
