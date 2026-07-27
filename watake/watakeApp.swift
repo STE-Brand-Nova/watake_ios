@@ -5,14 +5,14 @@
 //  Created by mbairm3 on 23/07/26.
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
-struct watakeApp: App {
+struct WatakeApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Item.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
