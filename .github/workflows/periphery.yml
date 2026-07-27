@@ -1,0 +1,22 @@
+name: Dead-code report
+
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: macos-26
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Periphery
+        run: brew install periphery
+      - name: Scan
+        run: periphery scan --project watake.xcodeproj --schemes Watake-Dev --format github-actions
+

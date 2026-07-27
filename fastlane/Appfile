@@ -1,0 +1,6 @@
+app_identifier(ENV.fetch("APP_IDENTIFIER", "com.reypryma.watake"))
+team_id(ENV.fetch("APPLE_TEAM_ID", "RKJRTR6K94"))
+
+apple_id(ENV["FASTLANE_USER"]) if ENV["FASTLANE_USER"]
+itc_team_id(ENV["APP_STORE_CONNECT_TEAM_ID"]) if ENV["APP_STORE_CONNECT_TEAM_ID"]
+

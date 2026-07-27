@@ -1,0 +1,28 @@
+title = "Watake iOS gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "apple-app-store-connect-api-key-file"
+description = "App Store Connect API private key"
+regex = '''AuthKey_[A-Z0-9]{10}\.p8'''
+tags = ["apple", "signing"]
+
+[[rules]]
+id = "apple-private-key-content"
+description = "Private key content"
+regex = '''-----BEGIN (EC |RSA )?PRIVATE KEY-----'''
+tags = ["private-key"]
+
+[allowlist]
+description = "Generated and binary paths"
+paths = [
+  '''\.gitleaks\.toml''',
+  '''(?i)\.(png|jpg|jpeg|pdf|zip|ipa|xcarchive)$''',
+  '''fastlane/report\.xml''',
+  '''fastlane/README\.md''',
+  '''vendor/''',
+  '''DerivedData/'''
+]
+

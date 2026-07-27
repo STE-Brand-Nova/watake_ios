@@ -1,0 +1,56 @@
+name: App Store release
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+      submit_for_review:
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing GitHub release tag
+        required: true
+        type: string
+      submit_for_review:
+        description: Submit the uploaded build for App Review
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: vars.ENABLE_APPLE_RELEASES == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: app-store
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag_name }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3.5"
+          bundler-cache: true
+      - name: Build and upload production
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          SUBMIT_FOR_REVIEW: ${{ inputs.submit_for_review || false }}
+        run: bundle exec fastlane release version:"${{ inputs.tag_name }}"
+      - name: Attach IPA to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag_name }}" build/*.ipa --clobber

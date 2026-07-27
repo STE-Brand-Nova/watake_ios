@@ -1,0 +1,7 @@
+#include "Base.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = com.reypryma.watake.dev
+APP_DISPLAY_NAME = Watake Dev
+WATAKE_ENVIRONMENT = development
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG WATAKE_DEV
+
