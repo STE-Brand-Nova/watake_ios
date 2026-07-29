@@ -25,6 +25,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: apple-upload
+  cancel-in-progress: false
+
 jobs:
   release:
     if: vars.ENABLE_APPLE_RELEASES == 'true'

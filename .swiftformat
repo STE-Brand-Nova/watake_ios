@@ -1,7 +1,7 @@
 # SwiftFormat config — https://github.com/nicklockwood/SwiftFormat
 # Run: `swiftformat .` (also runs in pre-commit).
 
---swiftversion 5.10
+--swiftversion 6.0
 
 # Target only source directories
 --exclude .build,DerivedData,Pods,vendor,**/.build,**/*.generated.swift
