@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.2.0...watake-ios-v0.2.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **ios:** swift formatK ([b89dacc](https://github.com/STE-Brand-Nova/watake_ios/commit/b89dacc8918992269b1d0247c27d6238ffb8a2d4))
+
 ## [0.2.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.1.0...watake-ios-v0.2.0) (2026-07-28)
 
 
