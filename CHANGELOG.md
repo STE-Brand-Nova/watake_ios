@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.2.1...watake-ios-v0.3.0) (2026-07-30)
+
+
+### Features
+
+* **domain:** add WatakeDomain foundation ([1764d03](https://github.com/STE-Brand-Nova/watake_ios/commit/1764d03532aa30556dc4f6fd38310eba501af6aa))
+* **domain:** add WatakeDomain foundation ([b1c1d36](https://github.com/STE-Brand-Nova/watake_ios/commit/b1c1d36a964f3224f025ba2dd4d6c13cec4b7362))
+
 ## [0.2.1](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.2.0...watake-ios-v0.2.1) (2026-07-29)
 
 
