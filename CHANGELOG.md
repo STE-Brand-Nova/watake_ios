@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.4.0...watake-ios-v0.5.0) (2026-07-31)
+
+
+### Features
+
+* **design:** add DesignSystem local package foundation ([fa3efb4](https://github.com/STE-Brand-Nova/watake_ios/commit/fa3efb4ad74e07653d0688c9215e435a2b0c92ad))
+* **design:** add DesignSystem local package foundation ([9159960](https://github.com/STE-Brand-Nova/watake_ios/commit/915996069cfcf8c02eeb13136f68537b3c465f37))
+
 ## [0.4.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.3.0...watake-ios-v0.4.0) (2026-07-31)
 
 
