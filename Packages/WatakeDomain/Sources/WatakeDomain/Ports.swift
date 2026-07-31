@@ -8,6 +8,7 @@ public protocol DocumentRepository: Sendable {
     func document(id: UUID) async throws -> StoredDocument?
     func documents(in folderId: UUID) async throws -> [StoredDocument]
     func saveDocument(_ document: StoredDocument) async throws
+    func deleteDocument(id: UUID) async throws
 
     func tags() async throws -> [Tag]
     func saveTag(_ tag: Tag) async throws
@@ -17,6 +18,8 @@ public protocol DocumentRepository: Sendable {
 }
 
 public protocol DocumentAssetStore: Sendable {
+    func saveAsset(_ data: Data, reference: AssetReference) async throws
+    func readAsset(_ reference: AssetReference) async throws -> Data
     func containsAsset(_ reference: AssetReference) async throws -> Bool
     func removeAsset(_ reference: AssetReference) async throws
 }
