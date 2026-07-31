@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.3.0...watake-ios-v0.4.0) (2026-07-31)
+
+
+### Features
+
+* **storage:** add protected local storage package ([a7abdad](https://github.com/STE-Brand-Nova/watake_ios/commit/a7abdad23738bac1eec8abe6e2475add5262d9a2))
+* **storage:** add protected local storage package ([c591f6d](https://github.com/STE-Brand-Nova/watake_ios/commit/c591f6db573c26225888c7850a4907973b5baf1d))
+
 ## [0.3.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.2.1...watake-ios-v0.3.0) (2026-07-30)
 
 
