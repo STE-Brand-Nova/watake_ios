@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.5.0...watake-ios-v0.6.0) (2026-08-01)
+
+
+### Features
+
+* **feat:** implement tab navigation ([8756d0f](https://github.com/STE-Brand-Nova/watake_ios/commit/8756d0f6f1090f0a70754c1c10bb3faead93de43))
+* **feature:** implement tab navigation ([1108d00](https://github.com/STE-Brand-Nova/watake_ios/commit/1108d0051c369efed4a99403a29c7952320daa08))
+
 ## [0.5.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.4.0...watake-ios-v0.5.0) (2026-07-31)
 
 
