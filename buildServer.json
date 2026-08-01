@@ -12,8 +12,8 @@
 	"argv": [
 		"/opt/homebrew/bin/xcode-build-server"
 	],
-	"workspace": "/Users/mbairm3/Desktop/iosproject/Watake/watake_ios/Watake.xcodeproj/project.xcworkspace",
+	"workspace": "/Users/mbairm3/Desktop/iosproject/Watake/watake_ios/watake.xcodeproj/project.xcworkspace",
 	"build_root": "/Users/mbairm3/Library/Developer/Xcode/DerivedData/watake-cxzlcxshjwjelvhersemdhtszwdh",
-	"scheme": "watake",
+	"scheme": "Watake-Dev",
 	"kind": "xcode"
 }
