@@ -10,13 +10,14 @@ import SwiftUI
 /// container width (never `UIScreen.main.bounds`), per `RESPONSIVE.md`.
 struct RootView: View {
     @State private var router = AppRouter()
+    @State private var library = LibraryStore()
 
     var body: some View {
         GeometryReader { proxy in
             if AppShellLayout.usesSidebar(forWidth: proxy.size.width) {
-                RegularSidebarShell(router: router)
+                RegularSidebarShell(router: router, library: library)
             } else {
-                CompactTabShell(router: router)
+                CompactTabShell(router: router, library: library)
             }
         }
     }

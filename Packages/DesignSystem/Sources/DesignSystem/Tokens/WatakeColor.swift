@@ -49,6 +49,24 @@ public enum WatakeColor {
         public static let danger = ColorValue(lightHex: "#B91C1C", darkHex: "#F87171").color
     }
 
+    /// Fixed, approved archive-tag palette from `Design.md`. Feature UI maps
+    /// persisted palette values to these semantic swatches; raw tag colors do
+    /// not appear in views.
+    public enum tag {
+        public static let red = ColorValue(lightHex: "#EF4444", darkHex: "#EF4444").color
+        public static let orange = ColorValue(lightHex: "#F97316", darkHex: "#F97316").color
+        public static let amber = ColorValue(lightHex: "#F59E0B", darkHex: "#F59E0B").color
+        public static let yellow = ColorValue(lightHex: "#EAB308", darkHex: "#EAB308").color
+        public static let lime = ColorValue(lightHex: "#84CC16", darkHex: "#84CC16").color
+        public static let green = ColorValue(lightHex: "#22C55E", darkHex: "#22C55E").color
+        public static let teal = ColorValue(lightHex: "#14B8A6", darkHex: "#14B8A6").color
+        public static let cyan = ColorValue(lightHex: "#06B6D4", darkHex: "#06B6D4").color
+        public static let blue = ColorValue(lightHex: "#3B82F6", darkHex: "#3B82F6").color
+        public static let violet = ColorValue(lightHex: "#8B5CF6", darkHex: "#8B5CF6").color
+        public static let pink = ColorValue(lightHex: "#EC4899", darkHex: "#EC4899").color
+        public static let slate = ColorValue(lightHex: "#64748B", darkHex: "#64748B").color
+    }
+
     /// Dimming overlay behind modals and sheets. Already includes its own alpha.
     public static let scrim = ColorValue(lightHex: "#0B122066", darkHex: "#00000099").color
 }

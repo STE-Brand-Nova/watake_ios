@@ -237,6 +237,9 @@ extension WatakeFileStorage: DocumentRepository {
         }
         for page in document.pages {
             _ = try await readAsset(page.source)
+            if let rectified = page.rectified {
+                _ = try await readAsset(rectified)
+            }
         }
         let existingFolderId = try locateDocumentFolder(id: document.id, root: root)
         if let existingFolderId, existingFolderId != document.folderId {

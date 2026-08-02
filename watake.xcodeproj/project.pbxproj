@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		C6A700000000000000000003 /* CaptureServices in Frameworks */ = {isa = PBXBuildFile; productRef = C6A700000000000000000002 /* CaptureServices */; };
 		DE51900000000000000000A3 /* DesignSystem in Frameworks */ = {isa = PBXBuildFile; productRef = DE51900000000000000000A2 /* DesignSystem */; };
+		A80000000000000000000003 /* ArchiveServices in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000002 /* ArchiveServices */; };
+		A80100000000000000000003 /* WatakeDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A80100000000000000000002 /* WatakeDomain */; };
+		A80200000000000000000003 /* WatakeStorage in Frameworks */ = {isa = PBXBuildFile; productRef = A80200000000000000000002 /* WatakeStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +66,9 @@
 			files = (
 				C6A700000000000000000003 /* CaptureServices in Frameworks */,
 				DE51900000000000000000A3 /* DesignSystem in Frameworks */,
+				A80000000000000000000003 /* ArchiveServices in Frameworks */,
+				A80100000000000000000003 /* WatakeDomain in Frameworks */,
+				A80200000000000000000003 /* WatakeStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +143,9 @@
 			packageProductDependencies = (
 				C6A700000000000000000002 /* CaptureServices */,
 				DE51900000000000000000A2 /* DesignSystem */,
+				A80000000000000000000002 /* ArchiveServices */,
+				A80100000000000000000002 /* WatakeDomain */,
+				A80200000000000000000002 /* WatakeStorage */,
 			);
 			productName = watake;
 			productReference = 66D93EC0301244A300039664 /* watake.app */;
@@ -223,6 +232,9 @@
 			packageReferences = (
 				C6A700000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureServices" */,
 				DE51900000000000000000A1 /* XCLocalSwiftPackageReference "Packages/DesignSystem" */,
+				A80000000000000000000001 /* XCLocalSwiftPackageReference "Packages/ArchiveServices" */,
+				A80100000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeDomain" */,
+				A80200000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeStorage" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 66D93EC1301244A300039664 /* Products */;
@@ -707,6 +719,18 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DesignSystem;
 		};
+		A80000000000000000000001 /* XCLocalSwiftPackageReference "Packages/ArchiveServices" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ArchiveServices;
+		};
+		A80100000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeDomain" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/WatakeDomain;
+		};
+		A80200000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeStorage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/WatakeStorage;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -717,6 +741,21 @@
 		DE51900000000000000000A2 /* DesignSystem */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DesignSystem;
+		};
+		A80000000000000000000002 /* ArchiveServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A80000000000000000000001 /* XCLocalSwiftPackageReference "Packages/ArchiveServices" */;
+			productName = ArchiveServices;
+		};
+		A80100000000000000000002 /* WatakeDomain */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A80100000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeDomain" */;
+			productName = WatakeDomain;
+		};
+		A80200000000000000000002 /* WatakeStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A80200000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeStorage" */;
+			productName = WatakeStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
