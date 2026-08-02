@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.8.0...watake-ios-v0.9.0) (2026-08-02)
+
+
+### Features
+
+* **watermark:** add basic watermark PDF renderer ([36752f5](https://github.com/STE-Brand-Nova/watake_ios/commit/36752f5b411576d7c8e15835c8a749cce9fddba7))
+* **watermark:** add basic watermark PDF renderer ([5cf7055](https://github.com/STE-Brand-Nova/watake_ios/commit/5cf7055fdcae77be414a3a98b931234bd4dc3eb0))
+
 ## [0.8.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.7.0...watake-ios-v0.8.0) (2026-08-02)
 
 
