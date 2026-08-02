@@ -25,11 +25,14 @@ struct CompactTabBar: View {
         }
         .padding(.top, WatakeSpacing.lg)
         .padding(.bottom, WatakeSpacing.xs)
-        .background(WatakeColor.surface.raised)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(WatakeColor.border.subtle)
-                .frame(height: 1)
+        .background {
+            ZStack(alignment: .top) {
+                WatakeColor.surface.raised
+
+                Rectangle()
+                    .fill(WatakeColor.border.subtle)
+                    .frame(height: 1)
+            }
         }
     }
 
