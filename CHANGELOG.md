@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.7.0...watake-ios-v0.8.0) (2026-08-02)
+
+
+### Features
+
+* **scanner:** add VisionKit scanner seam ([b150a18](https://github.com/STE-Brand-Nova/watake_ios/commit/b150a18b2a80a3a28abe149da84ad98d0fb9a1ae))
+* **scanner:** add VisionKit scanner seam ([ee90011](https://github.com/STE-Brand-Nova/watake_ios/commit/ee9001141ecbad6edc8e470ac36ebd302484cf28))
+
 ## [0.7.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.6.0...watake-ios-v0.7.0) (2026-08-02)
 
 
