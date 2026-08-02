@@ -15,3 +15,4 @@ SWIFT_STRICT_CONCURRENCY = complete
 
 INFOPLIST_KEY_CFBundleDisplayName = $(APP_DISPLAY_NAME)
 INFOPLIST_KEY_WATAKE_ENVIRONMENT = $(WATAKE_ENVIRONMENT)
+INFOPLIST_KEY_NSCameraUsageDescription = Watake uses your camera only to scan documents stored locally on this device.
