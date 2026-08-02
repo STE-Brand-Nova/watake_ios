@@ -9,6 +9,7 @@ import SwiftUI
 /// Declaration order in `AppDestination` puts Capture near the top.
 struct RegularSidebarShell: View {
     @Bindable var router: AppRouter
+    @Bindable var library: LibraryStore
 
     var body: some View {
         NavigationSplitView {
@@ -19,7 +20,7 @@ struct RegularSidebarShell: View {
             .navigationTitle("Watake")
         } detail: {
             NavigationStack {
-                DestinationRootView(destination: router.selection)
+                DestinationRootView(destination: router.selection, library: library)
             }
         }
     }

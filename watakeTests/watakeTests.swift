@@ -60,3 +60,14 @@ struct AppShellLayoutTests {
         #expect(AppShellLayout.usesSidebar(forWidth: 700) == true)
     }
 }
+
+@MainActor
+struct CaptureSaveStateTests {
+    @Test func failedSaveRetainsReviewPages() {
+        #expect(CaptureSaveState.pagesAfterSave([1, 2], succeeded: false) == [1, 2])
+    }
+
+    @Test func successfulSaveClearsReviewPages() {
+        #expect(CaptureSaveState.pagesAfterSave([1, 2], succeeded: true).isEmpty)
+    }
+}

@@ -14,11 +14,12 @@ import SwiftUI
 /// empty bar above this custom one.
 struct CompactTabShell: View {
     @Bindable var router: AppRouter
+    @Bindable var library: LibraryStore
 
     var body: some View {
         VStack(spacing: 0) {
             NavigationStack {
-                DestinationRootView(destination: router.selection)
+                DestinationRootView(destination: router.selection, library: library)
             }
 
             CompactTabBar(router: router)
