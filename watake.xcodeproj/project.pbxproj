@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C6A700000000000000000003 /* CaptureServices in Frameworks */ = {isa = PBXBuildFile; productRef = C6A700000000000000000002 /* CaptureServices */; };
 		DE51900000000000000000A3 /* DesignSystem in Frameworks */ = {isa = PBXBuildFile; productRef = DE51900000000000000000A2 /* DesignSystem */; };
 /* End PBXBuildFile section */
 
@@ -60,6 +61,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C6A700000000000000000003 /* CaptureServices in Frameworks */,
 				DE51900000000000000000A3 /* DesignSystem in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -133,6 +135,7 @@
 			);
 			name = watake;
 			packageProductDependencies = (
+				C6A700000000000000000002 /* CaptureServices */,
 				DE51900000000000000000A2 /* DesignSystem */,
 			);
 			productName = watake;
@@ -218,6 +221,7 @@
 			mainGroup = 66D93EB7301244A300039664;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				C6A700000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureServices" */,
 				DE51900000000000000000A1 /* XCLocalSwiftPackageReference "Packages/DesignSystem" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -695,6 +699,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		C6A700000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureServices" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CaptureServices;
+		};
 		DE51900000000000000000A1 /* XCLocalSwiftPackageReference "Packages/DesignSystem" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DesignSystem;
@@ -702,6 +710,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C6A700000000000000000002 /* CaptureServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CaptureServices;
+		};
 		DE51900000000000000000A2 /* DesignSystem */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DesignSystem;
