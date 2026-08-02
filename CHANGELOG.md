@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.9.0...watake-ios-v0.10.0) (2026-08-02)
+
+
+### Features
+
+* **archiver:** complete capture and archive workflow ([eb21f74](https://github.com/STE-Brand-Nova/watake_ios/commit/eb21f74338b2433b6e425a79b1183a66965ef0e8))
+* **capture:** complete archive workflow ([7ba9569](https://github.com/STE-Brand-Nova/watake_ios/commit/7ba9569f3321976dcbc9fe2d2f1fa87ab7c5696a))
+
 ## [0.9.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.8.0...watake-ios-v0.9.0) (2026-08-02)
 
 
