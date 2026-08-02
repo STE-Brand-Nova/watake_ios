@@ -27,3 +27,38 @@ public protocol DocumentAssetStore: Sendable {
 public protocol DocumentScanning: Sendable {
     func scanDocument(into folderId: UUID, named name: String) async throws -> StoredDocument
 }
+
+/// Renders a document's immutable source pages plus one supported text
+/// watermark layer (`WatermarkConfig.body`) into a transient PDF. Never
+/// mutates, replaces, or deletes any source asset.
+public protocol WatermarkPDFRendering: Sendable {
+    func renderPDF(for document: StoredDocument, watermark config: WatermarkConfig) async throws -> Data
+}
+
+/// Privacy-safe, typed failures. Never carry document names, watermark text,
+/// file paths, or raw framework error payloads.
+public enum WatermarkRenderError: Error, Equatable, Sendable {
+    /// `StoredDocument` failed contract validation (e.g. non-contiguous page
+    /// indexes). Kept distinct from `invalidWatermarkConfig` so diagnostics
+    /// stay accurate without exposing document content.
+    case invalidDocument
+    /// `WatermarkConfig` failed contract validation (e.g. malformed color hex).
+    case invalidWatermarkConfig
+    /// An enabled layer other than `body` was requested. The basic renderer
+    /// must fail loudly instead of silently dropping requested content.
+    case unsupportedWatermarkLayer(UnsupportedWatermarkLayer)
+    /// The page's `source` asset could not be read from the asset store.
+    case sourceAssetUnreadable(pageIndex: Int)
+    /// The page's `source` asset data could not be decoded as an image.
+    case sourceImageUndecodable(pageIndex: Int)
+    /// The page's `source` asset decoded to a zero-size image.
+    case sourceImageEmpty(pageIndex: Int)
+    /// Core Graphics failed to open or write the PDF context.
+    case pdfGenerationFailed
+}
+
+public enum UnsupportedWatermarkLayer: Equatable, Sendable {
+    case heading
+    case caption
+    case image
+}
