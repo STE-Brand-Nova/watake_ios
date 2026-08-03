@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.10.0...watake-ios-v0.11.0) (2026-08-03)
+
+
+### Features
+
+* **viewer:** add document viewer with page rail and rectified fallback ([d8c2d70](https://github.com/STE-Brand-Nova/watake_ios/commit/d8c2d70c3bedb4f77e509330bebf3160a945f24c))
+* **viewer:** document viewer with page rail and rectified fallback ([a10bf9e](https://github.com/STE-Brand-Nova/watake_ios/commit/a10bf9eb11c3bb2b8e3393958f51c3a54e8f597b))
+
 ## [0.10.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.9.0...watake-ios-v0.10.0) (2026-08-02)
 
 
