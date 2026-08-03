@@ -28,6 +28,15 @@ public protocol DocumentScanning: Sendable {
     func scanDocument(into folderId: UUID, named name: String) async throws -> StoredDocument
 }
 
+/// Narrow read-only port for reopening a saved document and its page assets.
+/// Deliberately excludes folders, tags, presets, and writes so a viewer-only
+/// feature never depends on the full `DocumentRepository`/`DocumentAssetStore`
+/// surface.
+public protocol DocumentPageAssetLoading: Sendable {
+    func document(id: UUID) async throws -> StoredDocument?
+    func readAsset(_ reference: AssetReference) async throws -> Data
+}
+
 /// Renders a document's immutable source pages plus one supported text
 /// watermark layer (`WatermarkConfig.body`) into a transient PDF. Never
 /// mutates, replaces, or deletes any source asset.

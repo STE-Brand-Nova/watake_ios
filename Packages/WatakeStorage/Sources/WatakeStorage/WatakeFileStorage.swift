@@ -381,3 +381,7 @@ extension WatakeFileStorage: DocumentAssetStore {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+/// `document(id:)` and `readAsset(_:)` already satisfy this narrower port via
+/// the `DocumentRepository`/`DocumentAssetStore` conformances above.
+extension WatakeFileStorage: DocumentPageAssetLoading {}

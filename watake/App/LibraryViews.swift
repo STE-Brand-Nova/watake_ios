@@ -1,5 +1,6 @@
 import ArchiveServices
 import DesignSystem
+import DocumentViewerFeature
 import SwiftUI
 import UIKit
 import WatakeDomain
@@ -102,22 +103,56 @@ private struct FolderDocumentsView: View {
     @State private var isAssigningTags = false
 
     var body: some View {
-        List {
-            ForEach(store.documents(in: folder)) { document in
-                HStack(spacing: WatakeSpacing.md) {
-                    DocumentThumbnail(store: store, document: document)
-                    VStack(alignment: .leading) {
-                        Text(document.name).foregroundStyle(WatakeColor.text.primary)
-                        Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
-                            .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
-                    }
-                    Spacer()
-                    if !document.tagIds.isEmpty {
-                        Image(systemName: "tag.fill").foregroundStyle(WatakeColor.status.warning)
+        GeometryReader { proxy in
+            let isCompact = WatakeLayout.widthClass(for: proxy.size.width) == .compact
+            Group {
+                if !isCompact, let documentID = store.selectedDocumentID {
+                    DocumentViewerView(model: store.documentViewerModel(for: documentID))
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Documents") { store.closeDocument() }.accessibilityLabel("Back to documents")
+                            }
+                        }
+                } else {
+                    documentList
+                }
+            }
+            .fullScreenCover(isPresented: compactViewerPresented(isCompact: isCompact)) {
+                if let documentID = store.selectedDocumentID {
+                    NavigationStack {
+                        DocumentViewerView(model: store.documentViewerModel(for: documentID))
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    Button("Close") { store.closeDocument() }
+                                }
+                            }
                     }
                 }
-                .contentShape(Rectangle())
+            }
+        }
+    }
+
+    private var documentList: some View {
+        List {
+            ForEach(store.documents(in: folder)) { document in
+                Button { store.openDocument(document) } label: {
+                    HStack(spacing: WatakeSpacing.md) {
+                        DocumentThumbnail(store: store, document: document)
+                        VStack(alignment: .leading) {
+                            Text(document.name).foregroundStyle(WatakeColor.text.primary)
+                            Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
+                                .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                        }
+                        Spacer()
+                        if !document.tagIds.isEmpty {
+                            Image(systemName: "tag.fill").foregroundStyle(WatakeColor.status.warning)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .contextMenu {
+                    Button("Open") { store.openDocument(document) }
                     Button("Rename") {
                         isAssigningTags = false
                         editingDocument = document
@@ -129,6 +164,7 @@ private struct FolderDocumentsView: View {
                     Button("Move to Trash", role: .destructive) { Task { await store.trashDocument(document) } }
                 }
                 .accessibilityLabel("\(document.name), \(document.pages.count) pages")
+                .accessibilityHint("Opens the document")
             }
             .onMove { indexes, destination in
                 var reordered = store.documents(in: folder)
@@ -149,6 +185,17 @@ private struct FolderDocumentsView: View {
                 DocumentRename(store: store, document: document)
             }
         }
+    }
+
+    private func compactViewerPresented(isCompact: Bool) -> Binding<Bool> {
+        Binding(
+            get: { isCompact && store.selectedDocumentID != nil },
+            set: {
+                if !$0 {
+                    store.closeDocument()
+                }
+            }
+        )
     }
 }
 
