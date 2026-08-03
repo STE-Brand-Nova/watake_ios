@@ -1,5 +1,6 @@
 import ArchiveServices
 import CaptureServices
+import DocumentViewerFeature
 import Foundation
 import Observation
 import WatakeDomain
@@ -18,6 +19,13 @@ final class LibraryStore {
     private(set) var tags: [Tag] = []
     var errorMessage: String?
     var isLoading = false
+
+    /// Routing state for the document viewer, kept here (above the compact/
+    /// regular/expanded shell split) so opening a document and its selected
+    /// page survive width-class changes. Routes by `DocumentID`, never a
+    /// `StoredDocument` instance or file URL.
+    private(set) var selectedDocumentID: UUID?
+    private var viewerModels: [UUID: DocumentViewerModel] = [:]
 
     init() {
         let storage = WatakeFileStorage(
@@ -134,6 +142,30 @@ final class LibraryStore {
 
     func folder(for id: UUID) -> Folder? {
         folders.first { $0.id == id }
+    }
+
+    func openDocument(_ document: StoredDocument) {
+        selectedDocumentID = document.id
+    }
+
+    func closeDocument() {
+        if let id = selectedDocumentID {
+            viewerModels[id]?.cancel()
+            viewerModels[id] = nil
+        }
+        selectedDocumentID = nil
+    }
+
+    /// Returns the same model instance for a given `DocumentID` across
+    /// repeated calls (e.g. across compact/regular re-layouts) so an
+    /// in-progress or completed load is never discarded by a width change.
+    func documentViewerModel(for documentID: UUID) -> DocumentViewerModel {
+        if let existing = viewerModels[documentID] {
+            return existing
+        }
+        let model = DocumentViewerModel(documentID: documentID, loader: storage)
+        viewerModels[documentID] = model
+        return model
     }
 
     func thumbnailData(for document: StoredDocument) async -> Data? {
