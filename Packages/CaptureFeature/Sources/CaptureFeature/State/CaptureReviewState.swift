@@ -107,6 +107,7 @@ public final class CaptureReviewState {
         via saver: any CaptureSaving,
         onSuccess: @escaping () -> Void
     ) async {
+        guard !isSaving else { return }
         guard let saveDestinationFolderID else {
             saveError = "Target folder is required."
             return
@@ -119,10 +120,19 @@ public final class CaptureReviewState {
         isSaving = true
         saveError = nil
 
-        // Explicitly await all running page processing tasks before serializing pages for storage
-        let tasksToAwait = Array(inFlightTasks.values)
-        for task in tasksToAwait {
-            _ = await task.value
+        await awaitAllInFlightTasks()
+
+        // Retake/delete may have run while the tasks above were in flight.
+        guard !pages.isEmpty else {
+            isSaving = false
+            saveError = "No pages to save."
+            return
+        }
+
+        guard !hasUnresolvedEdit else {
+            isSaving = false
+            saveError = "Some pages could not finish processing. Adjust corners or rotate again, then retry saving."
+            return
         }
 
         let importedPages = pages.map { page in
@@ -153,6 +163,29 @@ public final class CaptureReviewState {
 
     // MARK: - Async Task & Cancellation Tracking
 
+    /// Whether a page the user cropped or rotated is still missing rectified
+    /// data after all in-flight tasks finish. That only happens when the
+    /// rectifier failed, and saving must never silently substitute the
+    /// unmodified source for a requested edit.
+    private var hasUnresolvedEdit: Bool {
+        pages.contains { page in
+            let wasEdited = page.cropQuadrilateral != nil || page.rotationDegrees != 0
+            return wasEdited && page.rectifiedData == nil
+        }
+    }
+
+    /// Awaits every in-flight task, re-checking after each pass: a rapid edit
+    /// made while this save is already waiting starts a new task that a
+    /// one-shot snapshot would miss, letting save race past it with stale data.
+    private func awaitAllInFlightTasks() async {
+        while !inFlightTasks.isEmpty {
+            let tasksToAwait = Array(inFlightTasks.values)
+            for task in tasksToAwait {
+                _ = await task.value
+            }
+        }
+    }
+
     private func cancelInFlightTask(for pageID: UUID) {
         taskRevisions[pageID] = (taskRevisions[pageID] ?? 0) + 1
         inFlightTasks[pageID]?.cancel()
@@ -174,18 +207,21 @@ public final class CaptureReviewState {
         let task = Task {
             let result = await rectifier.rectify(jpegData: sourceData, quadrilateral: quad, rotationDegrees: rotation)
             if Task.isCancelled {
+                // Cancellation only happens via `cancelInFlightTask`, which already
+                // bumped the revision and removed this entry synchronously.
                 return
             }
-            guard let result else { return }
             await MainActor.run {
-                if Task.isCancelled {
+                // A newer edit already superseded this task and owns
+                // `inFlightTasks[pageID]` now; leave its entry untouched.
+                guard self.taskRevisions[pageID] == currentRevision else {
                     return
                 }
-                let indexMatch = self.pages.firstIndex(where: { $0.id == pageID })
-                guard self.taskRevisions[pageID] == currentRevision, let targetIndex = indexMatch else {
-                    return
+                if let result, let targetIndex = self.pages.firstIndex(where: { $0.id == pageID }) {
+                    self.pages[targetIndex].rectifiedData = result
                 }
-                self.pages[targetIndex].rectifiedData = result
+                // Clear in-flight state on every outcome, including a nil/failed
+                // result, so `isProcessing` and Save never get stuck forever.
                 self.inFlightTasks.removeValue(forKey: pageID)
             }
         }

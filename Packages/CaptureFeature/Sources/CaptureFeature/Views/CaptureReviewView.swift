@@ -3,7 +3,7 @@ import SwiftUI
 import WatakeDomain
 
 public struct CaptureReviewView: View {
-    public static let twoPaneMinWidth: CGFloat = 872
+    public static let twoPaneMinWidth: CGFloat = CaptureReviewLayoutPolicy.twoPaneMinWidth
 
     @Bindable public var state: CaptureReviewState
     public let folderProvider: any CaptureFolderProviding
@@ -30,7 +30,7 @@ public struct CaptureReviewView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            let useTwoPane = geometry.size.width >= Self.twoPaneMinWidth
+            let useTwoPane = CaptureReviewLayoutPolicy.usesTwoPane(forWidth: geometry.size.width)
 
             Group {
                 if useTwoPane {

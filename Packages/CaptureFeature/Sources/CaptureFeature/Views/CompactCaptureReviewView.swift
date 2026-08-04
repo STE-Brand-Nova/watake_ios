@@ -77,7 +77,7 @@ public struct CompactCaptureReviewView: View {
                         index: index,
                         isSelected: index == state.selectedIndex,
                         onSelect: { state.selectPage(at: index) },
-                        onDelete: { state.selectPage(at: index)
+                        onDelete: state.isSaving ? nil : { state.selectPage(at: index)
                             state.deleteSelectedPage()
                         }
                     )
@@ -88,24 +88,41 @@ public struct CompactCaptureReviewView: View {
         .frame(height: 120)
     }
 
+    private var processingIndicator: some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            ProgressView()
+            Text("Finishing edits before save…")
+                .watakeType(.caption)
+        }
+        .foregroundStyle(WatakeColor.text.secondary)
+        .padding(.horizontal, WatakeSpacing.md)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Finishing edits before save")
+    }
+
     private var bottomToolbar: some View {
         VStack(spacing: WatakeSpacing.sm) {
+            if state.isProcessing {
+                processingIndicator
+            }
+
             HStack(spacing: WatakeSpacing.sm) {
                 WatakeButton("Retake", variant: .secondary) {
                     onRetake()
                 }
+                .disabled(state.isSaving)
                 .accessibilityLabel("Retake all pages")
 
                 WatakeButton("Rotate", variant: .secondary) {
                     state.rotateSelectedPage(via: rectifier)
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Rotate page 90 degrees")
 
                 WatakeButton("Adjust corners", variant: .secondary) {
                     state.isEditingCrop = true
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Adjust crop corners")
             }
 
@@ -113,14 +130,18 @@ public struct CompactCaptureReviewView: View {
                 WatakeButton("Delete page", variant: .secondary) {
                     state.deleteSelectedPage()
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Delete current page")
 
                 WatakeButton("Save to folder", variant: .primary) {
                     state.isShowingSaveDestination = true
                 }
                 .disabled(state.pages.isEmpty || state.isSaving || state.isProcessing)
-                .accessibilityLabel("Save capture to folder")
+                .accessibilityLabel(
+                    state.isProcessing
+                        ? "Save disabled while pages finish processing"
+                        : "Save capture to folder"
+                )
             }
         }
         .padding(.horizontal, WatakeSpacing.md)
