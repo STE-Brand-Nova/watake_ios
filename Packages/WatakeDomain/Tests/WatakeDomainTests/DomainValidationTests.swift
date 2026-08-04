@@ -263,6 +263,36 @@ struct DomainValidationTests {
         }
     }
 
+    @Test("crop quadrilateral validates bounds and corner ordering")
+    func cropQuadrilateralValidation() {
+        let valid = CropQuadrilateral.unit
+        #expect(valid.isValid)
+
+        let invalidDegenerate = CropQuadrilateral(
+            topLeft: NormalizedPoint(x: 0.5, y: 0.5),
+            topRight: NormalizedPoint(x: 0.5, y: 0.5),
+            bottomRight: NormalizedPoint(x: 0.2, y: 0.2),
+            bottomLeft: NormalizedPoint(x: 0.2, y: 0.2)
+        )
+        #expect(!invalidDegenerate.isValid)
+
+        let invalidCrossed = CropQuadrilateral(
+            topLeft: NormalizedPoint(x: 0.0, y: 1.0),
+            topRight: NormalizedPoint(x: 1.0, y: 1.0),
+            bottomRight: NormalizedPoint(x: 0.0, y: 0.0),
+            bottomLeft: NormalizedPoint(x: 1.0, y: 0.0)
+        )
+        #expect(!invalidCrossed.isValid)
+
+        let invalidConcave = CropQuadrilateral(
+            topLeft: NormalizedPoint(x: 0.0, y: 1.0),
+            topRight: NormalizedPoint(x: 1.0, y: 1.0),
+            bottomRight: NormalizedPoint(x: 0.5, y: 0.8),
+            bottomLeft: NormalizedPoint(x: 0.0, y: 0.0)
+        )
+        #expect(!invalidConcave.isValid)
+    }
+
     @Test("ocr text normalizes line endings through decoding")
     func ocrTextNormalizesThroughDecoding() throws {
         let page = makePage(ocrText: "one\r\ntwo\rthree")

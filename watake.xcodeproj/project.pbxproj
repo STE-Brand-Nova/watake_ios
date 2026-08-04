@@ -11,6 +11,7 @@
 		DE51900000000000000000A3 /* DesignSystem in Frameworks */ = {isa = PBXBuildFile; productRef = DE51900000000000000000A2 /* DesignSystem */; };
 		A80000000000000000000003 /* ArchiveServices in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000002 /* ArchiveServices */; };
 		A80300000000000000000003 /* DocumentViewerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A80300000000000000000002 /* DocumentViewerFeature */; };
+		A80400000000000000000003 /* CaptureFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A80400000000000000000002 /* CaptureFeature */; };
 		A80100000000000000000003 /* WatakeDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A80100000000000000000002 /* WatakeDomain */; };
 		A80200000000000000000003 /* WatakeStorage in Frameworks */ = {isa = PBXBuildFile; productRef = A80200000000000000000002 /* WatakeStorage */; };
 /* End PBXBuildFile section */
@@ -71,6 +72,7 @@
 				A80100000000000000000003 /* WatakeDomain in Frameworks */,
 				A80200000000000000000003 /* WatakeStorage in Frameworks */,
 				A80300000000000000000003 /* DocumentViewerFeature in Frameworks */,
+				A80400000000000000000003 /* CaptureFeature in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -149,6 +151,7 @@
 				A80100000000000000000002 /* WatakeDomain */,
 				A80200000000000000000002 /* WatakeStorage */,
 				A80300000000000000000002 /* DocumentViewerFeature */,
+				A80400000000000000000002 /* CaptureFeature */,
 			);
 			productName = watake;
 			productReference = 66D93EC0301244A300039664 /* watake.app */;
@@ -239,6 +242,7 @@
 				A80100000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeDomain" */,
 				A80200000000000000000001 /* XCLocalSwiftPackageReference "Packages/WatakeStorage" */,
 				A80300000000000000000001 /* XCLocalSwiftPackageReference "Packages/DocumentViewerFeature" */,
+				A80400000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureFeature" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 66D93EC1301244A300039664 /* Products */;
@@ -739,6 +743,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DocumentViewerFeature;
 		};
+		A80400000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureFeature" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CaptureFeature;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -769,6 +777,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A80300000000000000000001 /* XCLocalSwiftPackageReference "Packages/DocumentViewerFeature" */;
 			productName = DocumentViewerFeature;
+		};
+		A80400000000000000000002 /* CaptureFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A80400000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureFeature" */;
+			productName = CaptureFeature;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

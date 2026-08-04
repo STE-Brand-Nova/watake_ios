@@ -2,38 +2,12 @@ import CryptoKit
 import Foundation
 import WatakeDomain
 
-public enum GalleryGrouping: Sendable, Equatable {
-    case oneDocument
-    case separateDocuments
-}
-
 public enum ImportSaveError: Error, Equatable, Sendable {
     case targetFolderMissing
     case targetFolderTrashed
     case emptyImport
     case cacheUnavailable
     case thumbnailFailed
-}
-
-/// Encoded page values cross the UI/service boundary; neither UIKit nor a
-/// persistence model escapes into this Sendable transaction.
-public struct ImportedPage: Sendable, Equatable {
-    public let sourceData: Data
-    public let sourceMediaType: String
-    public let sourceFileExtension: String
-    public let rectifiedJPEG: Data?
-
-    public init(
-        sourceData: Data,
-        sourceMediaType: String = "image/jpeg",
-        sourceFileExtension: String = "jpg",
-        rectifiedJPEG: Data? = nil
-    ) {
-        self.sourceData = sourceData
-        self.sourceMediaType = sourceMediaType
-        self.sourceFileExtension = sourceFileExtension
-        self.rectifiedJPEG = rectifiedJPEG
-    }
 }
 
 public struct ImportedDocumentFactory: Sendable {

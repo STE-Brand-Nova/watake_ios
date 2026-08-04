@@ -71,3 +71,12 @@ struct CaptureSaveStateTests {
         #expect(CaptureSaveState.pagesAfterSave([1, 2], succeeded: true).isEmpty)
     }
 }
+
+@MainActor
+struct CaptureIntegrationTests {
+    @Test func storeConformsToCapturePorts() async {
+        let store = LibraryStore()
+        let activeFolders = await store.activeFolders()
+        #expect(activeFolders.isEmpty == store.activeFolders.isEmpty)
+    }
+}
