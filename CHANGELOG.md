@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.11.0...watake-ios-v0.12.0) (2026-08-04)
+
+
+### Features
+
+* **capture:** add adaptive capture review feature ([1de0dc6](https://github.com/STE-Brand-Nova/watake_ios/commit/1de0dc6c39b6250a55dc89d9e2d0202064c96cca))
+* **capture:** add adaptive capture review feature ([a12d838](https://github.com/STE-Brand-Nova/watake_ios/commit/a12d83852f3365a334622c69c262430a33dbebac))
+
 ## [0.11.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.10.0...watake-ios-v0.11.0) (2026-08-03)
 
 
