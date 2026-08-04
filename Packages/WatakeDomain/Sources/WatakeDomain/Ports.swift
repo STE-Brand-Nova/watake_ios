@@ -71,3 +71,21 @@ public enum UnsupportedWatermarkLayer: Equatable, Sendable {
     case caption
     case image
 }
+
+/// Port for detecting candidate document quadrilaterals and rectifying document photos
+/// with perspective correction and non-destructive 90° rotations.
+public protocol DocumentRectifying: Sendable {
+    func detect(in jpegData: Data) async -> RectificationResult
+    func rectify(jpegData: Data, quadrilateral: CropQuadrilateral, rotationDegrees: Int) async -> Data?
+}
+
+/// Port for saving reviewed pages into a target folder.
+public protocol CaptureSaving: Sendable {
+    func save(pages: [ImportedPage], grouping: GalleryGrouping, folderID: UUID, name: String) async throws -> [StoredDocument]
+}
+
+/// Port for retrieving active folders and creating new folders during save.
+public protocol CaptureFolderProviding: Sendable {
+    func activeFolders() async -> [Folder]
+    func createFolder(name: String) async throws -> Folder
+}
