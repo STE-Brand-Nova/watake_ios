@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.12.0...watake-ios-v0.12.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **capture:** harden review behavior ([4e4168f](https://github.com/STE-Brand-Nova/watake_ios/commit/4e4168fd5172c58071395738f31b9160632c09fc))
+* **capture:** harden review behavior ([dee7d60](https://github.com/STE-Brand-Nova/watake_ios/commit/dee7d60477f9661b7c5835575c141c755423a3d6))
+
 ## [0.12.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.11.0...watake-ios-v0.12.0) (2026-08-04)
 
 
