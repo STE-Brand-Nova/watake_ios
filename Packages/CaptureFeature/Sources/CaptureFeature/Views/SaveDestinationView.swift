@@ -87,6 +87,7 @@ public struct SaveDestinationView: View {
                         dismiss()
                     }
                     .frame(minWidth: 44, minHeight: 44)
+                    .disabled(state.isSaving)
                     .accessibilityLabel("Cancel save")
                 }
 

@@ -248,8 +248,155 @@ struct CaptureFeatureTests {
     }
 
     @Test
-    func twoPaneMinWidthCondition() {
-        #expect(CaptureReviewView.twoPaneMinWidth == 872)
+    func saveRejectsConcurrentDuplicateSubmissions() async {
+        let folderID = UUID()
+        let state = CaptureReviewState(
+            pages: [makeSamplePage()],
+            saveDestinationFolderID: folderID
+        )
+        let saver = DelayedCountingSaver()
+
+        let firstSave = Task { @MainActor in
+            await state.save(via: saver) {}
+        }
+        let secondSave = Task { @MainActor in
+            await state.save(via: saver) {}
+        }
+
+        await firstSave.value
+        await secondSave.value
+
+        let saveCallCount = await saver.saveCallCount
+        #expect(saveCallCount == 1)
+        #expect(!state.isSaving)
+    }
+
+    @Test
+    func twoPaneMinWidthDerivesFromRenderedLayoutRequirements() {
+        let expected = CaptureReviewLayoutPolicy.mainPaneMinWidth
+            + CaptureReviewLayoutPolicy.trailingPanelWidth
+            + CaptureReviewLayoutPolicy.paneSpacing
+            + (CaptureReviewLayoutPolicy.outerPaddingPerSide * 2)
+
+        #expect(CaptureReviewLayoutPolicy.twoPaneMinWidth == expected)
+        #expect(CaptureReviewView.twoPaneMinWidth == expected)
+        // Documents the current concrete point value so a silent token-scale
+        // change is caught explicitly rather than only through the formula.
+        #expect(CaptureReviewLayoutPolicy.twoPaneMinWidth == 860)
+    }
+
+    @Test
+    func usesTwoPaneBelowAndAtTrueMinimumWidth() {
+        let minWidth = CaptureReviewLayoutPolicy.twoPaneMinWidth
+
+        #expect(!CaptureReviewLayoutPolicy.usesTwoPane(forWidth: minWidth - 1))
+        #expect(CaptureReviewLayoutPolicy.usesTwoPane(forWidth: minWidth))
+    }
+
+    @Test
+    func rectificationFailureClearsInFlightStateInsteadOfLeaking() async throws {
+        let page1 = makeSamplePage(rotation: 0)
+        let state = CaptureReviewState(pages: [page1], selectedIndex: 0)
+        let rectifier = FailingRectifier()
+
+        state.rotateSelectedPage(via: rectifier)
+        #expect(state.isProcessing)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        // A failed rectification must clear its in-flight entry, not leave
+        // isProcessing (and therefore Save) stuck forever.
+        #expect(!state.isProcessing)
+        #expect(state.selectedPage?.rectifiedData == nil)
+    }
+
+    @Test
+    func saveFailsSafelyWhenEditedPageRectificationFails() async {
+        let page1 = makeSamplePage(rotation: 0)
+        let folderID = UUID()
+        let state = CaptureReviewState(
+            pages: [page1],
+            selectedIndex: 0,
+            saveDestinationFolderID: folderID
+        )
+        let rectifier = FailingRectifier()
+        let saver = CapturingSaver()
+
+        state.rotateSelectedPage(via: rectifier)
+
+        var wasSaved = false
+        await state.save(via: saver) {
+            wasSaved = true
+        }
+
+        #expect(!wasSaved)
+        #expect(state.saveError != nil)
+        #expect(saver.savedPages.isEmpty)
+        // The unmodified source must never be silently persisted in place of
+        // a rotation/crop that failed to process.
+        #expect(state.selectedPage?.rectifiedData == nil)
+        #expect(!state.isSaving)
+    }
+
+    @Test
+    func saveAwaitsTasksStartedWhileAlreadySaving() async {
+        let page1 = makeSamplePage(rotation: 0)
+        let folderID = UUID()
+        let state = CaptureReviewState(
+            pages: [page1],
+            selectedIndex: 0,
+            saveDestinationFolderID: folderID
+        )
+        let rectifier = SlowRectifier()
+        let saver = CapturingSaver()
+
+        // Start a first slow task, then begin save while it is still running.
+        state.rotateSelectedPage(via: rectifier)
+
+        let saveTask = Task {
+            await state.save(via: saver) {}
+        }
+
+        // While save() is awaiting the first task, trigger a second edit that
+        // starts a brand-new in-flight task after save's initial snapshot.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        state.rotateSelectedPage(via: rectifier)
+
+        await saveTask.value
+
+        // Save must not race past the second task with stale/nil data.
+        #expect(saver.savedPages.first?.rectifiedJPEG == Data("slow-rectified-output".utf8))
+        #expect(!state.isProcessing)
+    }
+
+    @Test
+    func saveAbortsSafelyIfPagesClearedDuringInFlightAwait() async {
+        let page1 = makeSamplePage(rotation: 0)
+        let folderID = UUID()
+        let state = CaptureReviewState(
+            pages: [page1],
+            selectedIndex: 0,
+            saveDestinationFolderID: folderID
+        )
+        let rectifier = SlowRectifier()
+        let saver = CapturingSaver()
+
+        state.rotateSelectedPage(via: rectifier)
+
+        var wasSaved = false
+        let saveTask = Task {
+            await state.save(via: saver) { wasSaved = true }
+        }
+
+        // Retake clears pages while save() is still awaiting the in-flight task.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        state.retake()
+
+        await saveTask.value
+
+        #expect(!wasSaved)
+        #expect(saver.savedPages.isEmpty)
+        #expect(state.pages.isEmpty)
     }
 }
 
@@ -261,6 +408,17 @@ private struct SlowRectifier: DocumentRectifying {
     func rectify(jpegData: Data, quadrilateral: CropQuadrilateral, rotationDegrees: Int) async -> Data? {
         try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
         return Data("slow-rectified-output".utf8)
+    }
+}
+
+private struct FailingRectifier: DocumentRectifying {
+    func detect(in jpegData: Data) async -> RectificationResult {
+        RectificationResult(quadrilateral: .unit, isDetectionConfident: true)
+    }
+
+    func rectify(jpegData: Data, quadrilateral: CropQuadrilateral, rotationDegrees: Int) async -> Data? {
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        return nil
     }
 }
 
@@ -276,6 +434,16 @@ private final class CapturingSaver: CaptureSaving, @unchecked Sendable {
     var savedPages: [ImportedPage] = []
     func save(pages: [ImportedPage], grouping: GalleryGrouping, folderID: UUID, name: String) async throws -> [StoredDocument] {
         savedPages = pages
+        return []
+    }
+}
+
+private actor DelayedCountingSaver: CaptureSaving {
+    private(set) var saveCallCount = 0
+
+    func save(pages: [ImportedPage], grouping: GalleryGrouping, folderID: UUID, name: String) async throws -> [StoredDocument] {
+        saveCallCount += 1
+        try await Task.sleep(for: .milliseconds(100))
         return []
     }
 }

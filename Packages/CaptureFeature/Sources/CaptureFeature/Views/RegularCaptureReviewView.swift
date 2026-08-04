@@ -18,16 +18,16 @@ public struct RegularCaptureReviewView: View {
     }
 
     public var body: some View {
-        HStack(spacing: WatakeSpacing.lg) {
-            // Main Preview Pane (Left - Flexible, min 480pt)
+        HStack(spacing: CaptureReviewLayoutPolicy.paneSpacing) {
+            // Main Preview Pane (Left - Flexible)
             mainPreviewPane
-                .frame(minWidth: 480, maxWidth: .infinity)
+                .frame(minWidth: CaptureReviewLayoutPolicy.mainPaneMinWidth, maxWidth: .infinity)
 
-            // Trailing Panel (Right - 320pt)
+            // Trailing Panel (Right)
             trailingPanel
-                .frame(width: 320)
+                .frame(width: CaptureReviewLayoutPolicy.trailingPanelWidth)
         }
-        .padding(WatakeSpacing.lg)
+        .padding(CaptureReviewLayoutPolicy.outerPaddingPerSide)
         .background(WatakeColor.surface.base)
     }
 
@@ -91,36 +91,56 @@ public struct RegularCaptureReviewView: View {
                 WatakeButton("Rotate Page", variant: .secondary) {
                     state.rotateSelectedPage(via: rectifier)
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Rotate page 90 degrees")
 
                 WatakeButton("Adjust Corners", variant: .secondary) {
                     state.isEditingCrop = true
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Adjust crop corners")
 
                 WatakeButton("Delete Page", variant: .secondary) {
                     state.deleteSelectedPage()
                 }
-                .disabled(state.selectedPage == nil)
+                .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Delete selected page")
 
                 WatakeButton("Retake Capture", variant: .secondary) {
                     onRetake()
                 }
+                .disabled(state.isSaving)
                 .accessibilityLabel("Retake capture flow")
+
+                if state.isProcessing {
+                    processingIndicator
+                }
 
                 WatakeButton("Save to Folder", variant: .primary) {
                     state.isShowingSaveDestination = true
                 }
                 .disabled(state.pages.isEmpty || state.isSaving || state.isProcessing)
-                .accessibilityLabel("Save capture to folder")
+                .accessibilityLabel(
+                    state.isProcessing
+                        ? "Save disabled while pages finish processing"
+                        : "Save capture to folder"
+                )
             }
         }
         .padding(WatakeSpacing.md)
         .background(WatakeColor.surface.raised)
         .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.lg))
+    }
+
+    private var processingIndicator: some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            ProgressView()
+            Text("Finishing edits before save…")
+                .watakeType(.caption)
+        }
+        .foregroundStyle(WatakeColor.text.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Finishing edits before save")
     }
 
     private func pageRow(index: Int, page: CaptureReviewPage) -> some View {
@@ -167,6 +187,7 @@ public struct RegularCaptureReviewView: View {
                 }
             )
             .buttonStyle(.plain)
+            .disabled(state.isSaving)
             .accessibilityLabel(deleteLabel)
         }
         .padding(WatakeSpacing.xs)
