@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.12.1...watake-ios-v0.13.0) (2026-08-05)
+
+
+### Features
+
+* **library:** support document move and page thumbnails ([85c946e](https://github.com/STE-Brand-Nova/watake_ios/commit/85c946e819f9f655df4ad9631cfaf1759d47e035))
+* **library:** support document move and page thumbnails ([7908c58](https://github.com/STE-Brand-Nova/watake_ios/commit/7908c585c66b3c09b41c798f50dbabd311796ee4))
+
 ## [0.12.1](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.12.0...watake-ios-v0.12.1) (2026-08-04)
 
 
