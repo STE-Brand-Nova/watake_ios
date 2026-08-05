@@ -8,6 +8,7 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case documentTrashed
     case tagUnavailable
     case invalidReorder
+    case sameFolder
 }
 
 /// Curated tag colors from `Design.md`. UI presents these as named swatches;
@@ -62,6 +63,23 @@ public actor ArchiveService {
         let updated = replacing(document, name: name, updatedAt: now())
         try await repository.saveDocument(updated)
         return updated
+    }
+
+    /// Moves an active document into a different active folder, appending it
+    /// to the end of the destination's custom order. Preserves the document's
+    /// ID, pages, tags, creation date, and asset references — only `folderId`,
+    /// `orderIndex`, and `updatedAt` change.
+    public func move(documentId: UUID, toFolderId: UUID) async throws -> StoredDocument {
+        guard let document = try await repository.document(id: documentId) else { throw ArchiveError.documentUnavailable }
+        guard document.deletedAt == nil else { throw ArchiveError.documentTrashed }
+        guard document.folderId != toFolderId else { throw ArchiveError.sameFolder }
+        guard let destination = try await repository.folder(id: toFolderId) else { throw ArchiveError.folderUnavailable }
+        guard destination.deletedAt == nil else { throw ArchiveError.folderTrashed }
+        let destinationDocuments = try await repository.documents(in: toFolderId).filter { $0.deletedAt == nil }
+        let nextOrderIndex = (destinationDocuments.map(\.orderIndex).max() ?? -1) + 1
+        let moved = replacing(document, folderId: toFolderId, orderIndex: nextOrderIndex, updatedAt: now())
+        try await repository.moveDocument(moved)
+        return moved
     }
 
     /// Persists only a complete, duplicate-free permutation of active folder documents.
@@ -133,6 +151,7 @@ public actor ArchiveService {
     private func replacing(
         _ document: StoredDocument,
         name: String? = nil,
+        folderId: UUID? = nil,
         orderIndex: Int? = nil,
         tagIds: [UUID]? = nil,
         deletedAt: Date?? = nil,
@@ -140,7 +159,7 @@ public actor ArchiveService {
     ) -> StoredDocument {
         StoredDocument(
             id: document.id,
-            folderId: document.folderId,
+            folderId: folderId ?? document.folderId,
             name: name ?? document.name,
             createdAt: document.createdAt,
             updatedAt: updatedAt,

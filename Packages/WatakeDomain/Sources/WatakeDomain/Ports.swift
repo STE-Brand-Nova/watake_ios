@@ -9,6 +9,11 @@ public protocol DocumentRepository: Sendable {
     func documents(in folderId: UUID) async throws -> [StoredDocument]
     func saveDocument(_ document: StoredDocument) async throws
     func deleteDocument(id: UUID) async throws
+    /// Persists a document under its (already-changed) `folderId`, unlike
+    /// `saveDocument` which rejects any folder change to a document that
+    /// already exists. Callers must supply the complete target record;
+    /// implementations move metadata only — asset bytes are not folder-scoped.
+    func moveDocument(_ document: StoredDocument) async throws
 
     func tags() async throws -> [Tag]
     func saveTag(_ tag: Tag) async throws
@@ -35,6 +40,15 @@ public protocol DocumentScanning: Sendable {
 public protocol DocumentPageAssetLoading: Sendable {
     func document(id: UUID) async throws -> StoredDocument?
     func readAsset(_ reference: AssetReference) async throws -> Data
+}
+
+/// Narrow read-only port for a page's low-cost preview thumbnail, distinct
+/// from `DocumentPageAssetLoading.readAsset` which returns the full-resolution
+/// asset. Implementations own caching/generation/fallback so callers (e.g. a
+/// document viewer's page rail) never decode a full-size page image just to
+/// render a small preview.
+public protocol DocumentPageThumbnailLoading: Sendable {
+    func thumbnail(for page: DocumentPage) async throws -> Data
 }
 
 /// Renders a document's immutable source pages plus one supported text

@@ -14,14 +14,14 @@ public final class DocumentViewerModel {
 
     private let documentID: UUID
     private let loader: any DocumentPageAssetLoading
-    private let thumbnailLoader: DocumentPageThumbnailLoader
+    private let thumbnailLoader: any DocumentPageThumbnailLoading
     private var loadTask: Task<Void, Never>?
     private var assetTask: Task<Void, Never>?
 
-    public init(documentID: UUID, loader: any DocumentPageAssetLoading) {
+    public init(documentID: UUID, loader: any DocumentPageAssetLoading, thumbnailLoader: any DocumentPageThumbnailLoading) {
         self.documentID = documentID
         self.loader = loader
-        thumbnailLoader = DocumentPageThumbnailLoader(loader: loader)
+        self.thumbnailLoader = thumbnailLoader
     }
 
     /// Loads (or reloads) the document. Cancels any in-flight load first so a

@@ -79,6 +79,33 @@ actor FakeLoader: DocumentPageAssetLoading {
     }
 }
 
+/// In-memory `DocumentPageThumbnailLoading` double, independent of the
+/// full-page `FakeLoader` so tests can assert the two paths never interfere.
+actor FakeThumbnailLoader: DocumentPageThumbnailLoading {
+    private var thumbnailsByPageID: [UUID: Data] = [:]
+    private var errorsByPageID: [UUID: Error] = [:]
+    private(set) var thumbnailCallCount = 0
+
+    func thumbnail(for page: DocumentPage) async throws -> Data {
+        thumbnailCallCount += 1
+        if let error = errorsByPageID[page.id] {
+            throw error
+        }
+        guard let data = thumbnailsByPageID[page.id] else {
+            throw FakeLoaderError.missingFixture
+        }
+        return data
+    }
+
+    func setThumbnail(_ data: Data, for pageID: UUID) {
+        thumbnailsByPageID[pageID] = data
+    }
+
+    func setError(_ error: Error, for pageID: UUID) {
+        errorsByPageID[pageID] = error
+    }
+}
+
 func makeAssetReference(id: UUID = UUID(), path: String = "page.bin") -> AssetReference {
     AssetReference(
         id: id,

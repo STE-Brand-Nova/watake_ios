@@ -56,6 +56,10 @@ private actor InMemoryDocumentRepository: DocumentRepository {
         documents[document.id] = document
     }
 
+    func moveDocument(_ document: StoredDocument) async throws {
+        documents[document.id] = document
+    }
+
     func deleteDocument(id: UUID) async throws {
         documents.removeValue(forKey: id)
     }

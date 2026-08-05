@@ -19,7 +19,7 @@ struct DocumentViewerModelTests {
         await loader.setDocument(document)
         await loader.setAsset(Data("first".utf8), for: sourceFirst)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.load()
         await model.waitUntilIdle()
 
@@ -35,7 +35,7 @@ struct DocumentViewerModelTests {
     @Test("a document that no longer exists resolves to empty")
     func loadMissingDocumentIsEmpty() async {
         let loader = FakeLoader()
-        let model = DocumentViewerModel(documentID: UUID(), loader: loader)
+        let model = DocumentViewerModel(documentID: UUID(), loader: loader, thumbnailLoader: FakeThumbnailLoader())
 
         model.load()
         await model.waitUntilIdle()
@@ -47,7 +47,7 @@ struct DocumentViewerModelTests {
     func loadErrorIsFailure() async {
         let loader = FakeLoader()
         await loader.setDocumentError(FakeLoaderError.documentUnreadable)
-        let model = DocumentViewerModel(documentID: UUID(), loader: loader)
+        let model = DocumentViewerModel(documentID: UUID(), loader: loader, thumbnailLoader: FakeThumbnailLoader())
 
         model.load()
         await model.waitUntilIdle()
@@ -63,7 +63,7 @@ struct DocumentViewerModelTests {
 
         let loader = FakeLoader()
         await loader.setDocumentError(FakeLoaderError.documentUnreadable)
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
 
         model.load()
         await model.waitUntilIdle()
@@ -93,7 +93,7 @@ struct DocumentViewerModelTests {
         await loader.setDocument(document)
         await loader.setAssetError(FakeLoaderError.assetUnreadable, for: source)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.load()
         await model.waitUntilIdle()
 
@@ -130,7 +130,7 @@ struct DocumentViewerModelTests {
         await loader.setAssetDelay(nanoseconds: 150_000_000, for: sourceSlow)
         await loader.setAsset(Data("fast".utf8), for: sourceFast)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.load()
         await model.waitUntilIdle()
 
@@ -168,7 +168,7 @@ struct DocumentViewerModelTests {
         await loader.setAssetError(FakeLoaderError.assetUnreadable, for: rectified)
         await loader.setAsset(Data("source".utf8), for: source)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.load()
         await model.waitUntilIdle()
 
@@ -193,7 +193,7 @@ struct DocumentViewerModelTests {
         await loader.setAsset(Data("first".utf8), for: sourceFirst)
         await loader.setAsset(Data("second".utf8), for: sourceSecond)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.loadIfNeeded()
         await model.waitUntilIdle()
 
@@ -224,7 +224,7 @@ struct DocumentViewerModelTests {
         await loader.setDocument(document)
         await loader.setDocumentDelay(nanoseconds: 200_000_000)
 
-        let model = DocumentViewerModel(documentID: document.id, loader: loader)
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: FakeThumbnailLoader())
         model.load()
         #expect(model.state == .loading)
 
@@ -232,5 +232,37 @@ struct DocumentViewerModelTests {
         await model.waitUntilIdle()
 
         #expect(model.state == .loading)
+    }
+
+    @Test("loading a rail thumbnail never changes the selected page's full-resolution asset")
+    func loadingThumbnailDoesNotChangeFullPageAsset() async throws {
+        let sourceFirst = makeAssetReference()
+        let sourceSecond = makeAssetReference()
+        let pageFirst = makePage(index: 0, source: sourceFirst)
+        let pageSecond = makePage(index: 1, source: sourceSecond)
+        let document = makeDocument(pages: [pageFirst, pageSecond])
+
+        let loader = FakeLoader()
+        await loader.setDocument(document)
+        await loader.setAsset(Data("full-res-first".utf8), for: sourceFirst)
+
+        let thumbnailLoader = FakeThumbnailLoader()
+        await thumbnailLoader.setThumbnail(Data("thumb-second".utf8), for: pageSecond.id)
+
+        let model = DocumentViewerModel(documentID: document.id, loader: loader, thumbnailLoader: thumbnailLoader)
+        model.load()
+        await model.waitUntilIdle()
+
+        // Load a thumbnail for the page that is not currently selected.
+        let thumbnail = try await model.loadThumbnailData(for: pageSecond)
+        #expect(thumbnail == Data("thumb-second".utf8))
+
+        guard case .content(let content) = model.state else {
+            Issue.record("expected content state")
+            return
+        }
+        #expect(content.selectedPageID == pageFirst.id)
+        #expect(content.pageAsset == .loaded(Data("full-res-first".utf8)))
+        #expect(await loader.readAssetCallCount == 1)
     }
 }
