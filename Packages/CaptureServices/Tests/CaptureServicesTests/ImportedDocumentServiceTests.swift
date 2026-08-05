@@ -91,6 +91,11 @@ private actor ImportRepository: DocumentRepository {
         values.append(document)
     }
 
+    func moveDocument(_ document: StoredDocument) async throws {
+        values.removeAll { $0.id == document.id }
+        values.append(document)
+    }
+
     func deleteDocument(id: UUID) async throws {
         values.removeAll { $0.id == id }
     }

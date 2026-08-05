@@ -105,12 +105,34 @@ public actor WatakeFileStorage {
         return value
     }
 
-    private func readDocument(at url: URL) throws -> StoredDocument? {
+    /// `owningFolderId` and `root` let this self-heal a document whose
+    /// `folderId` field disagrees with the folder it physically lives under.
+    /// `locateDocumentFolder` treats physical location as the ownership
+    /// source of truth (see `moveDocument`), so that mismatch is corrected
+    /// here rather than trusted. A failed correction write is not data loss:
+    /// the caller still gets the correct value, and the next read retries.
+    private func readDocument(at url: URL, owningFolderId: UUID, root: URL) throws -> StoredDocument? {
         guard let value = try readEncryptedRecord(StoredDocument.self, at: url) else {
             return nil
         }
         try validated(value.validate)
-        return value
+        guard value.folderId != owningFolderId else {
+            return value
+        }
+        let corrected = StoredDocument(
+            id: value.id,
+            folderId: owningFolderId,
+            name: value.name,
+            createdAt: value.createdAt,
+            updatedAt: value.updatedAt,
+            orderIndex: value.orderIndex,
+            pages: value.pages,
+            deletedAt: value.deletedAt,
+            tagIds: value.tagIds,
+            watermarkPresetId: value.watermarkPresetId
+        )
+        try? writeEncryptedRecord(corrected, to: url, root: root)
+        return corrected
     }
 
     private func readTag(at url: URL) throws -> Tag? {
@@ -210,7 +232,7 @@ extension WatakeFileStorage: DocumentRepository {
         guard let folderId = try locateDocumentFolder(id: id, root: root) else {
             return nil
         }
-        return try readDocument(at: StorageLayout.documentMetadataFile(root, folderId, id))
+        return try readDocument(at: StorageLayout.documentMetadataFile(root, folderId, id), owningFolderId: folderId, root: root)
     }
 
     public func documents(in folderId: UUID) async throws -> [StoredDocument] {
@@ -218,7 +240,7 @@ extension WatakeFileStorage: DocumentRepository {
         let root = try resolvedRoot()
         let ids = try listRecordIDs(in: StorageLayout.documentsRoot(root, folderId))
         let documents = try ids.compactMap {
-            try readDocument(at: StorageLayout.documentMetadataFile(root, folderId, $0))
+            try readDocument(at: StorageLayout.documentMetadataFile(root, folderId, $0), owningFolderId: folderId, root: root)
         }
         return documents.sorted { lhs, rhs in
             lhs.orderIndex != rhs.orderIndex
@@ -252,6 +274,66 @@ extension WatakeFileStorage: DocumentRepository {
         )
     }
 
+    /// Persists `document` under its new `folderId`, unlike `saveDocument`
+    /// which rejects any folder change to an existing document. Asset bytes
+    /// are content-addressed and not folder-scoped, so only the per-folder
+    /// metadata directory moves.
+    ///
+    /// Relocates the directory with a single `moveItem` (an atomic rename on
+    /// the same volume — the whole storage tree is under one root), then
+    /// rewrites `document.json.enc` in place with the corrected `folderId`.
+    /// `locateDocumentFolder` treats physical location, not the persisted
+    /// `folderId` field, as ownership truth, so a crash between those two
+    /// steps cannot lose or duplicate the document: it is already
+    /// discoverable at the destination, and `readDocument` self-heals the
+    /// stale field on the next read. There is no unguarded `try?` around a
+    /// step whose failure would change what "moved" means.
+    public func moveDocument(_ document: StoredDocument) async throws {
+        try ensurePrepared()
+        try document.validate()
+        let root = try resolvedRoot()
+        let owningFolder = try readFolder(at: StorageLayout.folderMetadataFile(root, document.folderId))
+        guard let owningFolder, owningFolder.deletedAt == nil else {
+            throw StorageError.owningFolderUnavailable
+        }
+        guard let existingFolderId = try locateDocumentFolder(id: document.id, root: root) else {
+            throw StorageError.notFound
+        }
+        for page in document.pages {
+            _ = try await readAsset(page.source)
+            if let rectified = page.rectified {
+                _ = try await readAsset(rectified)
+            }
+        }
+        guard existingFolderId != document.folderId else {
+            try writeEncryptedRecord(
+                document,
+                to: StorageLayout.documentMetadataFile(root, document.folderId, document.id),
+                root: root
+            )
+            return
+        }
+        let oldDirectory = StorageLayout.documentDirectory(root, existingFolderId, document.id)
+        let newDirectory = StorageLayout.documentDirectory(root, document.folderId, document.id)
+        do {
+            try fileManager.createDirectory(
+                at: StorageLayout.documentsRoot(root, document.folderId), withIntermediateDirectories: true
+            )
+        } catch {
+            throw StorageError.ioFailure
+        }
+        do {
+            try fileManager.moveItem(at: oldDirectory, to: newDirectory)
+        } catch {
+            throw StorageError.ioFailure
+        }
+        try writeEncryptedRecord(
+            document,
+            to: StorageLayout.documentMetadataFile(root, document.folderId, document.id),
+            root: root
+        )
+    }
+
     public func deleteDocument(id: UUID) async throws {
         try ensurePrepared()
         let root = try resolvedRoot()
@@ -259,7 +341,7 @@ extension WatakeFileStorage: DocumentRepository {
             throw StorageError.notFound
         }
         let metadataURL = StorageLayout.documentMetadataFile(root, folderId, id)
-        guard let existing = try readDocument(at: metadataURL) else {
+        guard let existing = try readDocument(at: metadataURL, owningFolderId: folderId, root: root) else {
             throw StorageError.notFound
         }
         guard existing.deletedAt != nil else {

@@ -12,9 +12,15 @@
     /// the selected document/page is never lost when the shell reflows.
     public struct DocumentViewerView: View {
         @Bindable private var model: DocumentViewerModel
+        private let onClose: (() -> Void)?
+        @FocusState private var isViewerFocused: Bool
 
-        public init(model: DocumentViewerModel) {
+        /// `onClose` is optional: it powers an accessible Escape-key shortcut
+        /// to dismiss the viewer, in addition to whatever visible back/close
+        /// control the caller already provides in its own toolbar.
+        public init(model: DocumentViewerModel, onClose: (() -> Void)? = nil) {
             self.model = model
+            self.onClose = onClose
         }
 
         public var body: some View {
@@ -25,6 +31,21 @@
             }
             .background(WatakeColor.surface.base)
             .task { model.loadIfNeeded() }
+            // `onKeyPress` only fires while the modified view or a descendant
+            // has focus; touch navigation alone never assigns it, so Escape
+            // would otherwise never fire on iPad. Claim focus once when the
+            // viewer appears (the same moment a caller's sheet/full-screen
+            // cover would already be taking over the responder chain) rather
+            // than reclaiming it on every render, so this never fights a
+            // sheet or control for focus.
+            .focusable()
+            .focused($isViewerFocused)
+            .onAppear { isViewerFocused = true }
+            .onKeyPress(.escape) {
+                guard let onClose else { return .ignored }
+                onClose()
+                return .handled
+            }
         }
 
         @ViewBuilder

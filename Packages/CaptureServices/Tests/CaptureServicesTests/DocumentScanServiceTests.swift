@@ -200,6 +200,10 @@ private actor FakeRepository: DocumentRepository {
         savedDocuments.append(document)
     }
 
+    func moveDocument(_ document: StoredDocument) async throws {
+        savedDocuments.append(document)
+    }
+
     func deleteDocument(id: UUID) async throws {}
     func tags() async throws -> [WatakeDomain.Tag] {
         []

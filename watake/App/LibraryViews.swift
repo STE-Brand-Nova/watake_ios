@@ -101,26 +101,27 @@ private struct FolderDocumentsView: View {
     let folder: Folder
     @State private var editingDocument: StoredDocument?
     @State private var isAssigningTags = false
+    @State private var movingDocument: StoredDocument?
 
     var body: some View {
         GeometryReader { proxy in
             let isCompact = WatakeLayout.widthClass(for: proxy.size.width) == .compact
             Group {
                 if !isCompact, let documentID = store.selectedDocumentID {
-                    DocumentViewerView(model: store.documentViewerModel(for: documentID))
+                    DocumentViewerView(model: store.documentViewerModel(for: documentID), onClose: { store.closeDocument() })
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button("Documents") { store.closeDocument() }.accessibilityLabel("Back to documents")
                             }
                         }
                 } else {
-                    documentList
+                    documentBrowser(width: proxy.size.width)
                 }
             }
             .fullScreenCover(isPresented: compactViewerPresented(isCompact: isCompact)) {
                 if let documentID = store.selectedDocumentID {
                     NavigationStack {
-                        DocumentViewerView(model: store.documentViewerModel(for: documentID))
+                        DocumentViewerView(model: store.documentViewerModel(for: documentID), onClose: { store.closeDocument() })
                             .toolbar {
                                 ToolbarItem(placement: .topBarLeading) {
                                     Button("Close") { store.closeDocument() }
@@ -132,52 +133,29 @@ private struct FolderDocumentsView: View {
         }
     }
 
-    private var documentList: some View {
-        List {
-            ForEach(store.documents(in: folder)) { document in
-                Button { store.openDocument(document) } label: {
-                    HStack(spacing: WatakeSpacing.md) {
-                        DocumentThumbnail(store: store, document: document)
-                        VStack(alignment: .leading) {
-                            Text(document.name).foregroundStyle(WatakeColor.text.primary)
-                            Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
-                                .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
-                        }
-                        Spacer()
-                        if !document.tagIds.isEmpty {
-                            Image(systemName: "tag.fill").foregroundStyle(WatakeColor.status.warning)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button("Open") { store.openDocument(document) }
-                    Button("Rename") {
-                        isAssigningTags = false
-                        editingDocument = document
-                    }
-                    Button("Tags") {
-                        isAssigningTags = true
-                        editingDocument = document
-                    }
-                    Button("Move to Trash", role: .destructive) { Task { await store.trashDocument(document) } }
-                }
-                .accessibilityLabel("\(document.name), \(document.pages.count) pages")
-                .accessibilityHint("Opens the document")
-            }
-            .onMove { indexes, destination in
-                var reordered = store.documents(in: folder)
-                reordered.move(fromOffsets: indexes, toOffset: destination)
-                Task { await store.reorder(folder: folder, documents: reordered) }
+    private func documentBrowser(width: CGFloat) -> some View {
+        Group {
+            switch store.layout(for: folder) {
+            case .list: documentList
+            case .grid: documentGrid(width: width)
             }
         }
-        .overlay {
-            if store.documents(in: folder).isEmpty {
-                WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
+        .toolbar {
+            if store.layout(for: folder) == .list {
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Picker(
+                    "Document layout",
+                    selection: Binding(get: { store.layout(for: folder) }, set: { store.setLayout($0, for: folder) })
+                ) {
+                    Image(systemName: "list.bullet").tag(DocumentLayout.list)
+                    Image(systemName: "square.grid.2x2").tag(DocumentLayout.grid)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Document layout")
             }
         }
-        .toolbar { EditButton() }
         .sheet(item: $editingDocument) { document in
             if isAssigningTags {
                 TagAssignment(store: store, document: document)
@@ -185,6 +163,131 @@ private struct FolderDocumentsView: View {
                 DocumentRename(store: store, document: document)
             }
         }
+        .sheet(item: $movingDocument) { document in
+            DocumentMove(store: store, document: document)
+        }
+    }
+
+    private var documentList: some View {
+        let ordered = store.documents(in: folder)
+        return List {
+            ForEach(Array(ordered.enumerated()), id: \.element.id) { index, document in
+                HStack(spacing: WatakeSpacing.md) {
+                    Button { store.openDocument(document) } label: {
+                        HStack(spacing: WatakeSpacing.md) {
+                            DocumentThumbnail(store: store, document: document)
+                            VStack(alignment: .leading) {
+                                Text(document.name).foregroundStyle(WatakeColor.text.primary)
+                                Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
+                                    .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                            }
+                            Spacer()
+                            if !document.tagIds.isEmpty {
+                                Image(systemName: "tag.fill").foregroundStyle(WatakeColor.status.warning)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
+                    .accessibilityLabel("\(document.name), \(document.pages.count) pages")
+                    .accessibilityHint("Opens the document")
+
+                    documentActionsMenu(for: document, index: index, ordered: ordered)
+                }
+            }
+            .onMove { indexes, destination in
+                var reordered = ordered
+                reordered.move(fromOffsets: indexes, toOffset: destination)
+                Task { await store.reorder(folder: folder, documents: reordered) }
+            }
+        }
+        .overlay {
+            if ordered.isEmpty {
+                WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
+            }
+        }
+    }
+
+    private func documentGrid(width: CGFloat) -> some View {
+        let ordered = store.documents(in: folder)
+        return ScrollView {
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: WatakeSpacing.md),
+                    count: WatakeLayout.columnCount(for: width)
+                ),
+                spacing: WatakeSpacing.md
+            ) {
+                ForEach(Array(ordered.enumerated()), id: \.element.id) { index, document in
+                    documentGridCell(document: document, index: index, ordered: ordered)
+                }
+            }
+            .padding(WatakeLayout.gutter(for: width))
+        }
+        .overlay {
+            if ordered.isEmpty {
+                WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
+            }
+        }
+    }
+
+    private func documentGridCell(document: StoredDocument, index: Int, ordered: [StoredDocument]) -> some View {
+        WatakeCard {
+            VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                HStack {
+                    Spacer(minLength: 0)
+                    documentActionsMenu(for: document, index: index, ordered: ordered)
+                }
+                Button { store.openDocument(document) } label: {
+                    VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                        DocumentGridThumbnail(store: store, document: document)
+                        Text(document.name).watakeType(.bodyEmphasis).foregroundStyle(WatakeColor.text.primary).lineLimit(2)
+                        Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
+                            .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("\(document.name), \(document.pages.count) pages")
+                .accessibilityHint("Opens the document")
+            }
+        }
+    }
+
+    private func documentActionsMenu(for document: StoredDocument, index: Int, ordered: [StoredDocument]) -> some View {
+        Menu {
+            Button("Open") { store.openDocument(document) }
+            Button("Rename") {
+                isAssigningTags = false
+                editingDocument = document
+            }
+            Button("Tags") {
+                isAssigningTags = true
+                editingDocument = document
+            }
+            Button("Move…") { movingDocument = document }
+            Divider()
+            Button("Move Up") { Task { await moveOrder(document: document, index: index, ordered: ordered, offset: -1) } }
+                .disabled(index == 0)
+            Button("Move Down") { Task { await moveOrder(document: document, index: index, ordered: ordered, offset: 1) } }
+                .disabled(index == ordered.count - 1)
+            Divider()
+            Button("Move to Trash", role: .destructive) { Task { await store.trashDocument(document) } }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .accessibilityLabel("More actions for \(document.name)")
+    }
+
+    private func moveOrder(document: StoredDocument, index: Int, ordered: [StoredDocument], offset: Int) async {
+        let target = index + offset
+        guard ordered.indices.contains(target) else { return }
+        var reordered = ordered
+        reordered.swapAt(index, target)
+        await store.reorder(folder: folder, documents: reordered)
     }
 
     private func compactViewerPresented(isCompact: Bool) -> Binding<Bool> {
@@ -216,6 +319,33 @@ private struct DocumentThumbnail: View {
             }
         }
         .frame(width: 44, height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
+        .accessibilityHidden(true)
+        .task(id: document.id) {
+            guard let data = await store.thumbnailData(for: document) else { return }
+            image = UIImage(data: data)
+        }
+    }
+}
+
+private struct DocumentGridThumbnail: View {
+    @Bindable var store: LibraryStore
+    let document: StoredDocument
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "doc.text.image")
+                    .foregroundStyle(WatakeColor.text.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 96)
         .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
         .accessibilityHidden(true)
         .task(id: document.id) {
@@ -275,6 +405,55 @@ private struct DocumentRename: View {
                         }
                     }
                 }
+        }
+    }
+}
+
+private struct DocumentMove: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var store: LibraryStore
+    let document: StoredDocument
+    @State private var destinationID: UUID?
+    @State private var isMoving = false
+
+    private var candidateFolders: [Folder] {
+        store.activeFolders.filter { $0.id != document.folderId }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if candidateFolders.isEmpty {
+                    Text("No other folders available to move this document into.")
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.text.secondary)
+                } else {
+                    Picker("Destination folder", selection: $destinationID) {
+                        Text("Select folder").tag(UUID?.none)
+                        ForEach(candidateFolders) { folder in
+                            Text(folder.name).tag(Optional(folder.id))
+                        }
+                    }
+                    .accessibilityLabel("Destination folder selection")
+                }
+            }
+            .navigationTitle("Move document")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isMoving ? "Moving…" : "Move") {
+                        guard let destinationID, let destination = store.folder(for: destinationID) else { return }
+                        isMoving = true
+                        Task {
+                            if await store.moveDocument(document, to: destination) {
+                                dismiss()
+                            }
+                            isMoving = false
+                        }
+                    }
+                    .disabled(destinationID == nil || isMoving)
+                }
+            }
         }
     }
 }

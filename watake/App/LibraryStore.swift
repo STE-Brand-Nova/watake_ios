@@ -6,6 +6,31 @@ import Observation
 import WatakeDomain
 import WatakeStorage
 
+/// A folder's chosen document presentation. Held in-session only on
+/// `LibraryStore` (not persisted): the app has no existing preferences
+/// mechanism, and introducing one (e.g. SwiftData) just for this would be
+/// disproportionate. Stable across navigating within the folder for the
+/// current app session, reset on relaunch.
+enum DocumentLayout: String, CaseIterable {
+    case list
+    case grid
+}
+
+/// Degraded thumbnail path used only if `ThumbnailCache` construction fails
+/// (e.g. Caches directory unavailable). Reads the full-resolution asset
+/// uncached rather than making the rail non-functional; `DocumentPageThumbnailProvider`
+/// is used whenever the cache is available.
+private struct RawAssetThumbnailFallback: DocumentPageThumbnailLoading {
+    let assetStore: any DocumentAssetStore
+
+    func thumbnail(for page: DocumentPage) async throws -> Data {
+        if let rectified = page.rectified, let data = try? await assetStore.readAsset(rectified) {
+            return data
+        }
+        return try await assetStore.readAsset(page.source)
+    }
+}
+
 @MainActor
 @Observable
 final class LibraryStore {
@@ -26,6 +51,8 @@ final class LibraryStore {
     /// `StoredDocument` instance or file URL.
     private(set) var selectedDocumentID: UUID?
     private var viewerModels: [UUID: DocumentViewerModel] = [:]
+
+    private var layoutByFolder: [UUID: DocumentLayout] = [:]
 
     init() {
         let storage = WatakeFileStorage(
@@ -119,6 +146,39 @@ final class LibraryStore {
         await run { try await archive.reorderDocuments(in: folder.id, ids: documents.map(\.id)) }
     }
 
+    /// Moves `document` into `destination`. Returns whether the move
+    /// succeeded; a recoverable, user-facing message is set on
+    /// `errorMessage` for the same/trashed/unavailable destination cases
+    /// instead of the generic fallback `run(_:)` message.
+    func moveDocument(_ document: StoredDocument, to destination: Folder) async -> Bool {
+        do {
+            _ = try await archive.move(documentId: document.id, toFolderId: destination.id)
+            await load()
+            return true
+        } catch let error as ArchiveError {
+            errorMessage = moveErrorMessage(error)
+            return false
+        } catch {
+            errorMessage = "Could not move document. Try again."
+            return false
+        }
+    }
+
+    private func moveErrorMessage(_ error: ArchiveError) -> String {
+        switch error {
+        case .sameFolder:
+            "This document is already in that folder."
+        case .folderTrashed:
+            "Can't move a document into a folder that's in Trash."
+        case .folderUnavailable:
+            "That folder is no longer available."
+        case .documentTrashed:
+            "Can't move a document that's in Trash."
+        default:
+            "Could not move document. Try again."
+        }
+    }
+
     func createTag(label: String, colorHex: String) async {
         await run { _ = try await archive.createTag(label: label, colorHex: colorHex) }
     }
@@ -144,6 +204,14 @@ final class LibraryStore {
         folders.first { $0.id == id }
     }
 
+    func layout(for folder: Folder) -> DocumentLayout {
+        layoutByFolder[folder.id] ?? .list
+    }
+
+    func setLayout(_ layout: DocumentLayout, for folder: Folder) {
+        layoutByFolder[folder.id] = layout
+    }
+
     func openDocument(_ document: StoredDocument) {
         selectedDocumentID = document.id
     }
@@ -163,7 +231,10 @@ final class LibraryStore {
         if let existing = viewerModels[documentID] {
             return existing
         }
-        let model = DocumentViewerModel(documentID: documentID, loader: storage)
+        let thumbnailLoader: any DocumentPageThumbnailLoading = thumbnailCache.map {
+            DocumentPageThumbnailProvider(assetStore: storage, cache: $0)
+        } ?? RawAssetThumbnailFallback(assetStore: storage)
+        let model = DocumentViewerModel(documentID: documentID, loader: storage, thumbnailLoader: thumbnailLoader)
         viewerModels[documentID] = model
         return model
     }

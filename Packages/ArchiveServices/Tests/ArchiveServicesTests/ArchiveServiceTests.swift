@@ -50,6 +50,83 @@ struct ArchiveServiceTests {
         #expect(try await repository.document(id: document.id)?.deletedAt == nil)
     }
 
+    @Test func moveDocumentPreservesIdentityAndAppendsToDestinationEnd() async throws {
+        let source = makeFolder(name: "Source")
+        let destination = makeFolder(name: "Destination")
+        let moving = makeDocument(folder: source, order: 0)
+        let existingInDestination = makeDocument(folder: destination, order: 0)
+        let repository = MemoryRepository(
+            folder: source, additionalFolders: [destination], documents: [moving, existingInDestination]
+        )
+        let timestamp = Date(timeIntervalSince1970: 1_700_002_000)
+        let service = ArchiveService(repository: repository, now: { timestamp })
+
+        let moved = try await service.move(documentId: moving.id, toFolderId: destination.id)
+
+        #expect(moved.id == moving.id)
+        #expect(moved.folderId == destination.id)
+        #expect(moved.orderIndex == 1)
+        #expect(moved.pages == moving.pages)
+        #expect(moved.tagIds == moving.tagIds)
+        #expect(moved.createdAt == moving.createdAt)
+        #expect(moved.updatedAt == timestamp)
+        let persisted = try #require(try await repository.document(id: moving.id))
+        #expect(persisted.folderId == destination.id)
+    }
+
+    @Test func moveDocumentRejectsSameFolder() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.sameFolder) {
+            try await service.move(documentId: document.id, toFolderId: folder.id)
+        }
+    }
+
+    @Test func moveDocumentRejectsUnknownDestination() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.folderUnavailable) {
+            try await service.move(documentId: document.id, toFolderId: UUID())
+        }
+    }
+
+    @Test func moveDocumentRejectsTrashedDestination() async throws {
+        let folder = makeFolder()
+        let trashedDestination = makeFolder(name: "Trashed", deletedAt: Date(timeIntervalSince1970: 1_700_001_500))
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, additionalFolders: [trashedDestination], documents: [document])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.folderTrashed) {
+            try await service.move(documentId: document.id, toFolderId: trashedDestination.id)
+        }
+    }
+
+    @Test func movedDocumentTrashAndRestoreStayCorrect() async throws {
+        let source = makeFolder(name: "Source")
+        let destination = makeFolder(name: "Destination")
+        let document = makeDocument(folder: source, order: 0)
+        let repository = MemoryRepository(folder: source, additionalFolders: [destination], documents: [document])
+        let service = ArchiveService(repository: repository)
+
+        _ = try await service.move(documentId: document.id, toFolderId: destination.id)
+        try await service.moveToTrash(documentId: document.id)
+        let trashed = try #require(try await repository.document(id: document.id))
+        #expect(trashed.folderId == destination.id)
+        #expect(trashed.deletedAt != nil)
+
+        try await service.restore(documentId: document.id)
+        let restored = try #require(try await repository.document(id: document.id))
+        #expect(restored.folderId == destination.id)
+        #expect(restored.deletedAt == nil)
+    }
+
     @Test func folderTrashWorksWithFileStorageAndKeepsIndependentTombstones() async throws {
         let root = TestStorageRoot()
         defer { try? FileManager.default.removeItem(at: root.url) }
@@ -92,8 +169,12 @@ private actor MemoryRepository: DocumentRepository {
     private var documentValues: [UUID: StoredDocument]
     private var tagValues: [UUID: WatakeDomain.Tag]
 
-    init(folder: Folder, documents: [StoredDocument], tags: [WatakeDomain.Tag] = []) {
-        folderValues = [folder.id: folder]
+    init(folder: Folder, additionalFolders: [Folder] = [], documents: [StoredDocument], tags: [WatakeDomain.Tag] = []) {
+        var folders = [folder.id: folder]
+        for extra in additionalFolders {
+            folders[extra.id] = extra
+        }
+        folderValues = folders
         documentValues = Dictionary(uniqueKeysWithValues: documents.map { ($0.id, $0) })
         tagValues = Dictionary(uniqueKeysWithValues: tags.map { ($0.id, $0) })
     }
@@ -122,6 +203,10 @@ private actor MemoryRepository: DocumentRepository {
         documentValues[document.id] = document
     }
 
+    func moveDocument(_ document: StoredDocument) async throws {
+        documentValues[document.id] = document
+    }
+
     func deleteDocument(id: UUID) async throws {
         documentValues[id] = nil
     }
@@ -141,8 +226,8 @@ private actor MemoryRepository: DocumentRepository {
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws {}
 }
 
-private func makeFolder() -> Folder {
-    Folder(id: UUID(), name: "Archive", colorHex: "#3B82F6", createdAt: Date(timeIntervalSince1970: 1_700_000_000))
+private func makeFolder(name: String = "Archive", deletedAt: Date? = nil) -> Folder {
+    Folder(id: UUID(), name: name, colorHex: "#3B82F6", createdAt: Date(timeIntervalSince1970: 1_700_000_000), deletedAt: deletedAt)
 }
 
 private func makeDocument(folder: Folder, order: Int) -> StoredDocument {
