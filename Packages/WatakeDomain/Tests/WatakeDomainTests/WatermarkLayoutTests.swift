@@ -50,6 +50,18 @@ private func makeConfig(
 }
 
 struct WatermarkLayoutTests {
+    @Test func textLayerRenderEligibilityAndCompositionOrderAreShared() {
+        let heading = makeTextLayer(text: "Heading")
+        let body = makeTextLayer(text: " ")
+        let caption = makeTextLayer(text: "Caption", enabled: false)
+        let config = makeConfig(body: body, heading: heading, caption: caption)
+
+        #expect(heading.isRenderable)
+        #expect(!body.isRenderable)
+        #expect(!caption.isRenderable)
+        #expect(config.renderableTextLayersInCompositionOrder.map(\.text) == ["Heading"])
+    }
+
     @Test func mapsAllNinePositionsToDistinctAnchorsAndAlignments() {
         let expectations: [PositionExpectation] = [
             PositionExpectation(position: .topLeft, horizontal: .leading, vertical: .top),

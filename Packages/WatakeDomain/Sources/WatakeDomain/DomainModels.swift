@@ -329,6 +329,25 @@ public struct WatermarkTextLayer: Codable, Equatable, Sendable {
         try DomainValidation.validateRotation(rotation)
         try DomainValidation.validateOpacity(opacity)
     }
+
+    /// A text layer participates in a composition only when the person has
+    /// enabled it and it contains visible text. Keeping this at the domain
+    /// boundary gives previews and eventual export renderers the same safe
+    /// eligibility rule.
+    public var isRenderable: Bool {
+        enabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+extension WatermarkConfig {
+    /// Text layers in the contract's required visual composition order.
+    /// Disabled or empty layers are intentionally omitted so consumers never
+    /// need to duplicate the eligibility rule before rendering.
+    public var renderableTextLayersInCompositionOrder: [WatermarkTextLayer] {
+        [heading, body, caption]
+            .compactMap(\.self)
+            .filter(\.isRenderable)
+    }
 }
 
 public struct WatermarkImageLayer: Codable, Equatable, Sendable {
