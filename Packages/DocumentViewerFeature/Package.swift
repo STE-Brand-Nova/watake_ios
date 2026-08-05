@@ -10,10 +10,11 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../WatakeDomain"),
-        .package(path: "../DesignSystem")
+        .package(path: "../DesignSystem"),
+        .package(path: "../WatermarkEditorFeature")
     ],
     targets: [
-        .target(name: "DocumentViewerFeature", dependencies: ["WatakeDomain", "DesignSystem"]),
+        .target(name: "DocumentViewerFeature", dependencies: ["WatakeDomain", "DesignSystem", "WatermarkEditorFeature"]),
         .testTarget(name: "DocumentViewerFeatureTests", dependencies: ["DocumentViewerFeature", "WatakeDomain"])
     ]
 )

@@ -2,6 +2,7 @@
     import DesignSystem
     import SwiftUI
     import WatakeDomain
+    import WatermarkEditorFeature
 
     /// Root viewer surface: reopens a saved document by `DocumentID` and shows
     /// its ordered pages. Adapts internally between compact (full-screen +
@@ -14,6 +15,7 @@
         @Bindable private var model: DocumentViewerModel
         private let onClose: (() -> Void)?
         @FocusState private var isViewerFocused: Bool
+        @State private var watermarkEditor: WatermarkEditorPresentation?
 
         /// `onClose` is optional: it powers an accessible Escape-key shortcut
         /// to dismiss the viewer, in addition to whatever visible back/close
@@ -41,6 +43,11 @@
             .focusable()
             .focused($isViewerFocused)
             .onAppear { isViewerFocused = true }
+            .fullScreenCover(item: $watermarkEditor) { presentation in
+                WatermarkEditorView(model: presentation.model, sourceImageData: presentation.sourceImageData) {
+                    watermarkEditor = nil
+                }
+            }
             .onKeyPress(.escape) {
                 guard let onClose else { return .ignored }
                 onClose()
@@ -76,8 +83,39 @@
             case .content(let content):
                 DocumentViewerContentView(content: content, widthClass: widthClass, model: model)
                     .navigationTitle(content.document.name)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                guard case .loaded(let data) = content.pageAsset else { return }
+                                watermarkEditor = WatermarkEditorPresentation(sourceImageData: data)
+                            } label: {
+                                Label("Watermark", systemImage: "paintbrush")
+                            }
+                            .disabled(!isPageLoaded(content))
+                            .accessibilityHint("Edits an in-memory watermark preview")
+                        }
+                    }
             }
         }
+
+        private func isPageLoaded(_ content: DocumentViewerContent) -> Bool {
+            if case .loaded = content.pageAsset {
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Presentation data stays self-contained so the full-screen editor reads
+    /// the exact page image that was loaded when the person tapped Watermark.
+    /// The source image is passed read-only; the editor owns only its in-memory
+    /// working draft.
+    @MainActor
+    private struct WatermarkEditorPresentation: Identifiable {
+        let id = UUID()
+        let sourceImageData: Data
+        let model = WatermarkEditorModel()
     }
 
     /// Splits compact vs. regular/expanded per `RESPONSIVE.md`. Regular and
