@@ -392,9 +392,10 @@ extension WatakeFileStorage: DocumentRepository {
             try readPreset(at: StorageLayout.presetMetadataFile(root, $0))
         }
         return presets.sorted { lhs, rhs in
-            lhs.createdAt != rhs.createdAt
-                ? lhs.createdAt < rhs.createdAt
-                : lhs.id.uuidString < rhs.id.uuidString
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            return nameOrder == .orderedSame
+                ? lhs.id.uuidString < rhs.id.uuidString
+                : nameOrder == .orderedAscending
         }
     }
 
@@ -402,6 +403,19 @@ extension WatakeFileStorage: DocumentRepository {
         try ensurePrepared()
         try preset.validate()
         let root = try resolvedRoot()
+
+        // This actor-isolated read-and-write transaction prevents concurrent
+        // callers from persisting case-insensitive duplicate names. An update
+        // to the same record remains valid.
+        let ids = try listRecordIDs(in: StorageLayout.presetsRoot(root), fileExtension: ".json.enc")
+        let hasDuplicateName = try ids
+            .compactMap { try readPreset(at: StorageLayout.presetMetadataFile(root, $0)) }
+            .contains {
+                $0.id != preset.id && $0.name.caseInsensitiveCompare(preset.name) == .orderedSame
+            }
+        guard !hasDuplicateName else {
+            throw WatermarkPresetStoreError.duplicateName
+        }
         try writeEncryptedRecord(preset, to: StorageLayout.presetMetadataFile(root, preset.id), root: root)
     }
 }
@@ -463,6 +477,8 @@ extension WatakeFileStorage: DocumentAssetStore {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+extension WatakeFileStorage: WatermarkPresetStore {}
 
 /// `document(id:)` and `readAsset(_:)` already satisfy this narrower port via
 /// the `DocumentRepository`/`DocumentAssetStore` conformances above.

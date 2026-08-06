@@ -108,12 +108,16 @@ private struct FolderDocumentsView: View {
             let isCompact = WatakeLayout.widthClass(for: proxy.size.width) == .compact
             Group {
                 if !isCompact, let documentID = store.selectedDocumentID {
-                    DocumentViewerView(model: store.documentViewerModel(for: documentID), onClose: { store.closeDocument() })
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button("Documents") { store.closeDocument() }.accessibilityLabel("Back to documents")
-                            }
+                    DocumentViewerView(
+                        model: store.documentViewerModel(for: documentID),
+                        presetStore: store.watermarkPresetStore,
+                        onClose: { store.closeDocument() }
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Documents") { store.closeDocument() }.accessibilityLabel("Back to documents")
                         }
+                    }
                 } else {
                     documentBrowser(width: proxy.size.width)
                 }
@@ -121,12 +125,16 @@ private struct FolderDocumentsView: View {
             .fullScreenCover(isPresented: compactViewerPresented(isCompact: isCompact)) {
                 if let documentID = store.selectedDocumentID {
                     NavigationStack {
-                        DocumentViewerView(model: store.documentViewerModel(for: documentID), onClose: { store.closeDocument() })
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    Button("Close") { store.closeDocument() }
-                                }
+                        DocumentViewerView(
+                            model: store.documentViewerModel(for: documentID),
+                            presetStore: store.watermarkPresetStore,
+                            onClose: { store.closeDocument() }
+                        )
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Close") { store.closeDocument() }
                             }
+                        }
                     }
                 }
             }
