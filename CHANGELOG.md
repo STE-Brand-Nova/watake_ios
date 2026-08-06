@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.14.0...watake-ios-v0.15.0) (2026-08-06)
+
+
+### Features
+
+* **watermark:** support image watermark layer ([e4ab62b](https://github.com/STE-Brand-Nova/watake_ios/commit/e4ab62beb3e6c24d10461af39b75c4a992b6d7fa))
+* **watermark:** support image watermark layer ([0990450](https://github.com/STE-Brand-Nova/watake_ios/commit/09904500e9af536d16e1b4ab9ce9f95c9ac7ebcf))
+
 ## [0.14.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.13.0...watake-ios-v0.14.0) (2026-08-05)
 
 
