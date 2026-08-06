@@ -82,6 +82,10 @@ final class LibraryStore {
         documentsByFolder.values.flatMap(\.self).filter { $0.deletedAt != nil }
     }
 
+    var watermarkPresetStore: any WatermarkPresetStore {
+        storage
+    }
+
     func load() async {
         isLoading = true
         defer { isLoading = false }

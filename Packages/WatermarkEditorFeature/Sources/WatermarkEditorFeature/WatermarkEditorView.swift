@@ -69,16 +69,18 @@
             }
         }
 
-        @ViewBuilder
         private var preview: some View {
-            if let image = UIImage(data: sourceImageData) {
-                WatermarkPreviewCanvas(sourceImage: image, preview: model.preview)
-            } else {
-                WatakeEmptyState(
-                    systemImage: "doc.questionmark",
-                    title: "Preview unavailable.",
-                    message: "This page couldn't be displayed."
-                )
+            VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                WatermarkPresetStatusPill(state: model.activePresetState)
+                if let image = UIImage(data: sourceImageData) {
+                    WatermarkPreviewCanvas(sourceImage: image, preview: model.preview)
+                } else {
+                    WatakeEmptyState(
+                        systemImage: "doc.questionmark",
+                        title: "Preview unavailable.",
+                        message: "This page couldn't be displayed."
+                    )
+                }
             }
         }
 
@@ -113,6 +115,7 @@
 
         var body: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.md) {
+                WatermarkPresetActions(model: model)
                 WatermarkEditorSegmentedControl(selection: $model.selectedTab)
                 inspectorContent
             }

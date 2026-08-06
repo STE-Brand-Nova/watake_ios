@@ -99,6 +99,45 @@ struct RoundTripTests {
         #expect(presets == [preset])
     }
 
+    @Test("watermark presets use stable case-insensitive name order")
+    func watermarkPresetOrdering() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let config = WatermarkConfig(automatic: false, globalPosition: .center, globalRotation: 0, globalOpacity: 1)
+        let alpha = WatermarkPreset(id: UUID(), name: "Alpha", config: config, createdAt: .now, updatedAt: .now)
+        let beta = WatermarkPreset(id: UUID(), name: "beta", config: config, createdAt: .now, updatedAt: .now)
+        let zeta = WatermarkPreset(id: UUID(), name: "zeta", config: config, createdAt: .now, updatedAt: .now)
+
+        try await storage.saveWatermarkPreset(zeta)
+        try await storage.saveWatermarkPreset(alpha)
+        try await storage.saveWatermarkPreset(beta)
+
+        #expect(try await storage.watermarkPresets().map(\.name) == ["Alpha", "beta", "zeta"])
+    }
+
+    @Test("concurrent watermark preset saves reject a duplicate name atomically")
+    func concurrentWatermarkPresetSavesRejectDuplicateName() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let config = WatermarkConfig(automatic: false, globalPosition: .center, globalRotation: 0, globalOpacity: 1)
+        let first = WatermarkPreset(id: UUID(), name: "Company", config: config, createdAt: .now, updatedAt: .now)
+        let second = WatermarkPreset(id: UUID(), name: "company", config: config, createdAt: .now, updatedAt: .now)
+
+        async let firstResult = savePreset(first, to: storage)
+        async let secondResult = savePreset(second, to: storage)
+        let results = await [firstResult, secondResult]
+
+        #expect(results.filter(\.isSuccess).count == 1)
+        #expect(results.compactMap(\.duplicateNameError) == [.duplicateName])
+        #expect(try await storage.watermarkPresets().count == 1)
+    }
+
     @Test("reassigning a document to a different folder is rejected")
     func folderReassignmentRejected() async throws {
         let root = EphemeralRootResolver()
@@ -181,5 +220,28 @@ struct RoundTripTests {
 
         let stored = try await storage.document(id: document.id)
         #expect(stored == nil)
+    }
+}
+
+private func savePreset(_ preset: WatermarkPreset, to storage: WatakeFileStorage) async -> Result<Void, Error> {
+    do {
+        try await storage.saveWatermarkPreset(preset)
+        return .success(())
+    } catch {
+        return .failure(error)
+    }
+}
+
+extension Result where Success == Void, Failure == Error {
+    fileprivate var isSuccess: Bool {
+        if case .success = self {
+            return true
+        }
+        return false
+    }
+
+    fileprivate var duplicateNameError: WatermarkPresetStoreError? {
+        guard case .failure(let error) = self else { return nil }
+        return error as? WatermarkPresetStoreError
     }
 }

@@ -9,28 +9,43 @@ import WatakeDomain
 @Observable
 public final class WatermarkEditorModel: Identifiable {
     public let id = UUID()
-    public private(set) var draft: WatermarkEditorDraft
+    public internal(set) var draft: WatermarkEditorDraft
     public var selectedTab: WatermarkEditorTab
     public private(set) var preview: WatermarkEditorPreview
-    public private(set) var imageImportState: WatermarkImageImportState = .empty
-    public private(set) var imageImportError: WatermarkImageImportError?
+    public internal(set) var imageImportState: WatermarkImageImportState = .empty
+    public internal(set) var imageImportError: WatermarkImageImportError?
+    public internal(set) var presetLibraryState: WatermarkPresetLibraryState = .idle
+    public internal(set) var presetSaveState: WatermarkPresetSaveState = .idle
+    public internal(set) var activePresetState: WatermarkActivePresetState = .none
 
-    private var colorInputs: [WatermarkTextLayerKind: String]
-    private var imageTintInput = ""
+    var colorInputs: [WatermarkTextLayerKind: String]
+    var imageTintInput = ""
     private let imageImporter: any WatermarkImageImporting
-    private var imageData: Data?
-    private var imageImportTask: Task<Void, Never>?
+    let presetStore: any WatermarkPresetStore
+    let now: @Sendable () -> Date
+    let makeUUID: @Sendable () -> UUID
+    var imageData: Data?
+    var imageImportTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
+    var presetTask: Task<Void, Never>?
     private var previewRevision = 0
+    var draftRevision = 0
+    var presetOperationRevision = 0
 
     public init(
         draft: WatermarkEditorDraft = .init(),
         selectedTab: WatermarkEditorTab = .heading,
-        imageImporter: any WatermarkImageImporting = WatermarkImageImporter()
+        imageImporter: any WatermarkImageImporting = WatermarkImageImporter(),
+        presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
+        now: @escaping @Sendable () -> Date = Date.init,
+        makeUUID: @escaping @Sendable () -> UUID = UUID.init
     ) {
         self.draft = draft
         self.selectedTab = selectedTab
         self.imageImporter = imageImporter
+        self.presetStore = presetStore
+        self.now = now
+        self.makeUUID = makeUUID
         preview = WatermarkEditorPreview(draft: draft, imageData: nil)
         imageTintInput = draft.image.tintHex ?? ""
         colorInputs = Dictionary(
@@ -210,6 +225,7 @@ public final class WatermarkEditorModel: Identifiable {
     public func cancelPreviewWork() {
         previewTask?.cancel()
         imageImportTask?.cancel()
+        presetTask?.cancel()
     }
 
     /// Test synchronization seam. It never performs export rendering.
@@ -222,7 +238,11 @@ public final class WatermarkEditorModel: Identifiable {
         await imageImportTask?.value
     }
 
-    private func schedulePreview() {
+    func schedulePreview(draftDidChange: Bool = true) {
+        if draftDidChange {
+            draftRevision += 1
+            markDraftModifiedIfNeeded()
+        }
         previewRevision += 1
         let revision = previewRevision
         previewTask?.cancel()

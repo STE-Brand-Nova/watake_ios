@@ -22,6 +22,20 @@ public protocol DocumentRepository: Sendable {
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws
 }
 
+/// Narrow preset-only persistence boundary. Watermark editing must not depend
+/// on the document, tag, or asset repository surface.
+public protocol WatermarkPresetStore: Sendable {
+    func watermarkPresets() async throws -> [WatermarkPreset]
+    func saveWatermarkPreset(_ preset: WatermarkPreset) async throws
+}
+
+/// Privacy-safe failures for the narrow watermark preset persistence boundary.
+/// Duplicate names deliberately carry no user-entered text.
+public enum WatermarkPresetStoreError: Error, Equatable, Sendable {
+    case unavailable
+    case duplicateName
+}
+
 public protocol DocumentAssetStore: Sendable {
     func saveAsset(_ data: Data, reference: AssetReference) async throws
     func readAsset(_ reference: AssetReference) async throws -> Data

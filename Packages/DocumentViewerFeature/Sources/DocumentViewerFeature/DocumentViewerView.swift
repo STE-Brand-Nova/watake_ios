@@ -13,6 +13,7 @@
     /// the selected document/page is never lost when the shell reflows.
     public struct DocumentViewerView: View {
         @Bindable private var model: DocumentViewerModel
+        private let presetStore: any WatermarkPresetStore
         private let onClose: (() -> Void)?
         @FocusState private var isViewerFocused: Bool
         @State private var watermarkEditor: WatermarkEditorPresentation?
@@ -20,8 +21,13 @@
         /// `onClose` is optional: it powers an accessible Escape-key shortcut
         /// to dismiss the viewer, in addition to whatever visible back/close
         /// control the caller already provides in its own toolbar.
-        public init(model: DocumentViewerModel, onClose: (() -> Void)? = nil) {
+        public init(
+            model: DocumentViewerModel,
+            presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
+            onClose: (() -> Void)? = nil
+        ) {
             self.model = model
+            self.presetStore = presetStore
             self.onClose = onClose
         }
 
@@ -87,7 +93,10 @@
                         ToolbarItem(placement: .topBarTrailing) {
                             Button {
                                 guard case .loaded(let data) = content.pageAsset else { return }
-                                watermarkEditor = WatermarkEditorPresentation(sourceImageData: data)
+                                watermarkEditor = WatermarkEditorPresentation(
+                                    sourceImageData: data,
+                                    presetStore: presetStore
+                                )
                             } label: {
                                 Label("Watermark", systemImage: "paintbrush")
                             }
@@ -115,7 +124,12 @@
     private struct WatermarkEditorPresentation: Identifiable {
         let id = UUID()
         let sourceImageData: Data
-        let model = WatermarkEditorModel()
+        let model: WatermarkEditorModel
+
+        init(sourceImageData: Data, presetStore: any WatermarkPresetStore) {
+            self.sourceImageData = sourceImageData
+            model = WatermarkEditorModel(presetStore: presetStore)
+        }
     }
 
     /// Splits compact vs. regular/expanded per `RESPONSIVE.md`. Regular and
