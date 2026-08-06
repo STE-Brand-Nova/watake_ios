@@ -72,7 +72,7 @@
         @ViewBuilder
         private var preview: some View {
             if let image = UIImage(data: sourceImageData) {
-                WatermarkPreviewCanvas(sourceImage: image, layers: model.previewLayers)
+                WatermarkPreviewCanvas(sourceImage: image, preview: model.preview)
             } else {
                 WatakeEmptyState(
                     systemImage: "doc.questionmark",
@@ -128,7 +128,7 @@
             case .caption:
                 WatermarkTextLayerInspector(kind: .caption, model: model)
             case .image:
-                WatermarkUnavailableInspector(title: "Image layer", message: "Image layers arrive in a later update.")
+                WatermarkImageLayerInspector(model: model)
             case .global:
                 WatermarkUnavailableInspector(
                     title: "Global controls",
@@ -388,7 +388,7 @@
 
     private struct WatermarkPreviewCanvas: View {
         let sourceImage: UIImage
-        let layers: [WatermarkEditorPreviewLayer]
+        let preview: WatermarkEditorPreview
 
         var body: some View {
             GeometryReader { proxy in
@@ -398,7 +398,7 @@
                         .resizable()
                         .interpolation(.high)
                         .frame(width: pageSize.width, height: pageSize.height)
-                    WatermarkTextStack(layers: layers)
+                    WatermarkPreviewCompositionView(preview: preview)
                         .frame(width: pageSize.width, height: pageSize.height)
                         .clipShape(Rectangle())
                 }
@@ -412,7 +412,13 @@
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Live document preview")
-            .accessibilityValue("\(layers.count) visible text layer\(layers.count == 1 ? "" : "s")")
+            .accessibilityValue(previewAccessibilityValue)
+        }
+
+        private var previewAccessibilityValue: String {
+            let textCount = preview.textLayers.count
+            let textDescription = "\(textCount) visible text layer\(textCount == 1 ? "" : "s")"
+            return preview.hasRenderableImage ? "\(textDescription), 1 visible image layer" : textDescription
         }
 
         private func fittedPageSize(in available: CGSize) -> CGSize {
@@ -451,8 +457,81 @@
         }
     }
 
+    private struct WatermarkPreviewCompositionView: View {
+        let preview: WatermarkEditorPreview
+
+        var body: some View {
+            switch preview.composition {
+            case .textOnly:
+                text
+            case .imageOnly:
+                image
+            case .imageBehindText:
+                ZStack { image
+                    text
+                }
+            case .imageAboveText:
+                ZStack { text
+                    image
+                }
+            case .imageLeftOfText:
+                HStack(spacing: WatakeSpacing.sm) { image
+                    text
+                }
+                .padding(WatakeSpacing.md)
+            case .imageRightOfText:
+                HStack(spacing: WatakeSpacing.sm) { text
+                    image
+                }
+                .padding(WatakeSpacing.md)
+            }
+        }
+
+        private var text: some View {
+            WatermarkTextStack(layers: preview.textLayers)
+        }
+
+        @ViewBuilder
+        private var image: some View {
+            if let imageData = preview.imageData, let image = UIImage(data: imageData) {
+                WatermarkPreviewImage(image: image, layer: preview.imageLayer)
+            }
+        }
+    }
+
+    private struct WatermarkPreviewImage: View {
+        let image: UIImage
+        let layer: EditableWatermarkImageLayer
+
+        var body: some View {
+            GeometryReader { proxy in
+                let base = min(proxy.size.width, proxy.size.height) * 0.28
+                if let tintHex = layer.tintHex {
+                    Image(uiImage: image)
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundStyle(Color(hex: tintHex))
+                        .imageLayout(base: base, layer: layer)
+                } else {
+                    Image(uiImage: image)
+                        .resizable()
+                        .imageLayout(base: base, layer: layer)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
     extension View {
-        fileprivate func watermarkInputSurface() -> some View {
+        fileprivate func imageLayout(base: CGFloat, layer: EditableWatermarkImageLayer) -> some View {
+            aspectRatio(contentMode: .fit)
+                .frame(width: base * layer.scale, height: base * layer.scale)
+                .rotationEffect(.degrees(layer.rotation))
+                .opacity(layer.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+
+        func watermarkInputSurface() -> some View {
             padding(.horizontal, WatakeSpacing.sm)
                 .frame(minHeight: 44)
                 .background(WatakeColor.surface.sunken)

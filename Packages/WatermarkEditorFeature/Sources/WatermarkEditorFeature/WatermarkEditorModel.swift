@@ -11,21 +11,45 @@ public final class WatermarkEditorModel: Identifiable {
     public let id = UUID()
     public private(set) var draft: WatermarkEditorDraft
     public var selectedTab: WatermarkEditorTab
-    public private(set) var previewLayers: [WatermarkEditorPreviewLayer]
+    public private(set) var preview: WatermarkEditorPreview
+    public private(set) var imageImportState: WatermarkImageImportState = .empty
+    public private(set) var imageImportError: WatermarkImageImportError?
 
     private var colorInputs: [WatermarkTextLayerKind: String]
+    private var imageTintInput = ""
+    private let imageImporter: any WatermarkImageImporting
+    private var imageData: Data?
+    private var imageImportTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var previewRevision = 0
 
-    public init(draft: WatermarkEditorDraft = .init(), selectedTab: WatermarkEditorTab = .heading) {
+    public init(
+        draft: WatermarkEditorDraft = .init(),
+        selectedTab: WatermarkEditorTab = .heading,
+        imageImporter: any WatermarkImageImporting = WatermarkImageImporter()
+    ) {
         self.draft = draft
         self.selectedTab = selectedTab
-        previewLayers = draft.renderableLayersInCompositionOrder
+        self.imageImporter = imageImporter
+        preview = WatermarkEditorPreview(draft: draft, imageData: nil)
+        imageTintInput = draft.image.tintHex ?? ""
         colorInputs = Dictionary(
             uniqueKeysWithValues: WatermarkTextLayerKind.allCases.map { kind in
                 (kind, draft.layer(for: kind).colorHex)
             }
         )
+    }
+
+    public var previewLayers: [WatermarkEditorPreviewLayer] {
+        preview.textLayers
+    }
+
+    public func imageLayer() -> EditableWatermarkImageLayer {
+        draft.image
+    }
+
+    public func tintInput() -> String {
+        imageTintInput
     }
 
     public func layer(for kind: WatermarkTextLayerKind) -> EditableWatermarkTextLayer {
@@ -85,13 +109,117 @@ public final class WatermarkEditorModel: Identifiable {
         schedulePreview()
     }
 
+    public func importImage(data: Data) {
+        imageImportTask?.cancel()
+        let hadImage = imageData != nil
+        imageImportError = nil
+        imageImportTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let imported = try await imageImporter.importImage(data: data)
+                guard !Task.isCancelled else { return }
+                imageData = imported.data
+                draft.updateImage { $0.setAssetReference(imported.assetReference) }
+                imageImportState = .loaded
+                schedulePreview()
+            } catch is CancellationError {
+                return
+            } catch let error as WatermarkImageImportError {
+                guard !Task.isCancelled else { return }
+                imageImportError = error
+                if !hadImage {
+                    imageImportState = .rejected(error)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                imageImportError = .undecodable
+                if !hadImage {
+                    imageImportState = .rejected(.undecodable)
+                }
+            }
+        }
+    }
+
+    /// Reports a picker transfer failure without exposing photo metadata.
+    public func rejectImageImport() {
+        imageImportError = .undecodable
+        if imageData == nil {
+            imageImportState = .rejected(.undecodable)
+        }
+    }
+
+    public func removeImage() {
+        imageImportTask?.cancel()
+        imageData = nil
+        imageImportError = nil
+        imageImportState = .empty
+        draft.updateImage { $0.clearAssetReference() }
+        schedulePreview()
+    }
+
+    public func setImageEnabled(_ value: Bool) {
+        draft.updateImage { $0.setEnabled(value) }
+        schedulePreview()
+    }
+
+    public func setImageScale(_ value: Double) {
+        draft.updateImage { $0.setScale(value) }
+        schedulePreview()
+    }
+
+    public func setImageRotation(_ value: Double) {
+        draft.updateImage { $0.setRotation(value) }
+        schedulePreview()
+    }
+
+    public func setImageOpacity(_ value: Double) {
+        draft.updateImage { $0.setOpacity(value) }
+        schedulePreview()
+    }
+
+    public func setImagePlacement(_ value: WatermarkImagePlacement) {
+        draft.updateImage { $0.setPlacement(value) }
+        schedulePreview()
+    }
+
+    public func setImageTintEnabled(_ value: Bool) {
+        draft.updateImage { $0.setTintHex(value ? WatermarkSemanticColor.ink.hex : nil) }
+        imageTintInput = value ? WatermarkSemanticColor.ink.hex : ""
+        schedulePreview()
+    }
+
+    public func setImageTintInput(_ value: String) {
+        imageTintInput = value
+        let before = draft.image.tintHex
+        draft.updateImage { $0.setTintHex(value) }
+        if before != draft.image.tintHex {
+            schedulePreview()
+        }
+    }
+
+    public func commitImageTintInput() {
+        imageTintInput = draft.image.tintHex ?? ""
+    }
+
+    public func setImageSemanticTint(_ value: WatermarkSemanticColor) {
+        draft.updateImage { $0.setTintHex(value.hex) }
+        imageTintInput = value.hex
+        schedulePreview()
+    }
+
     public func cancelPreviewWork() {
         previewTask?.cancel()
+        imageImportTask?.cancel()
     }
 
     /// Test synchronization seam. It never performs export rendering.
     public func waitForPreview() async {
         await previewTask?.value
+    }
+
+    /// Test synchronization seam for the in-memory picker import.
+    public func waitForImageImport() async {
+        await imageImportTask?.value
     }
 
     private func schedulePreview() {
@@ -105,7 +233,13 @@ public final class WatermarkEditorModel: Identifiable {
                 return
             }
             guard let self, !Task.isCancelled, previewRevision == revision else { return }
-            previewLayers = draft.renderableLayersInCompositionOrder
+            preview = WatermarkEditorPreview(draft: draft, imageData: imageData)
         }
     }
+}
+
+public enum WatermarkImageImportState: Equatable, Sendable {
+    case empty
+    case loaded
+    case rejected(WatermarkImageImportError)
 }
