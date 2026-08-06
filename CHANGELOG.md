@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.13.0...watake-ios-v0.14.0) (2026-08-05)
+
+
+### Features
+
+* **watermark:** add text layer editor ([830bf7f](https://github.com/STE-Brand-Nova/watake_ios/commit/830bf7fcbb678e5470ba7463bd200104ef8f1539))
+* **watermark:** add text layer editor ([bbde704](https://github.com/STE-Brand-Nova/watake_ios/commit/bbde7040532cc67a2470f5e8edd4c19131db1caf))
+
 ## [0.13.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.12.1...watake-ios-v0.13.0) (2026-08-05)
 
 
