@@ -1,8 +1,8 @@
 import Foundation
 import WatakeDomain
 
-/// The editable tabs supported by this focused text-layer slice. Image and
-/// global controls remain visible in the UI as unavailable future work.
+/// The editable watermark tabs. Global controls remain visibly unavailable
+/// until their dedicated slice is implemented.
 public enum WatermarkEditorTab: String, CaseIterable, Identifiable, Sendable {
     case heading
     case body
@@ -163,27 +163,42 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
     public private(set) var heading: EditableWatermarkTextLayer
     public private(set) var body: EditableWatermarkTextLayer
     public private(set) var caption: EditableWatermarkTextLayer
+    public private(set) var image: EditableWatermarkImageLayer
 
     public init(
         heading: EditableWatermarkTextLayer = .init(),
         body: EditableWatermarkTextLayer = .init(),
-        caption: EditableWatermarkTextLayer = .init()
+        caption: EditableWatermarkTextLayer = .init(),
+        image: EditableWatermarkImageLayer = .init()
     ) {
         self.heading = heading
         self.body = body
         self.caption = caption
+        self.image = image
     }
 
     public init(config: WatermarkConfig) {
         heading = config.heading.map(EditableWatermarkTextLayer.init) ?? .init()
         body = config.body.map(EditableWatermarkTextLayer.init) ?? .init()
         caption = config.caption.map(EditableWatermarkTextLayer.init) ?? .init()
+        image = config.image.map {
+            EditableWatermarkImageLayer(
+                enabled: $0.enabled,
+                assetReference: $0.assetRef,
+                scale: $0.scale,
+                tintHex: $0.tintHex,
+                rotation: $0.rotation,
+                opacity: $0.opacity,
+                placement: $0.placement
+            )
+        } ?? .init()
     }
 
     private enum CodingKeys: String, CodingKey {
         case heading
         case body
         case caption
+        case image
     }
 
     public init(from decoder: any Decoder) throws {
@@ -191,6 +206,7 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         heading = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .heading) ?? .init()
         body = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .body) ?? .init()
         caption = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .caption) ?? .init()
+        image = try container.decodeIfPresent(EditableWatermarkImageLayer.self, forKey: .image) ?? .init()
     }
 
     public func layer(for kind: WatermarkTextLayerKind) -> EditableWatermarkTextLayer {
@@ -209,6 +225,10 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         }
     }
 
+    public mutating func updateImage(_ update: (inout EditableWatermarkImageLayer) -> Void) {
+        update(&image)
+    }
+
     /// Returns the contract model without applying, exporting, or persisting
     /// it. Defaults preserve the version-1 shared schema and neutral global
     /// values for the deferred global-controls slice.
@@ -218,6 +238,7 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
             heading: heading.watermarkTextLayer(),
             body: body.watermarkTextLayer(),
             caption: caption.watermarkTextLayer(),
+            image: image.watermarkImageLayer(),
             globalPosition: .center,
             globalRotation: 0,
             globalOpacity: 1
