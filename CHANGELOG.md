@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.17.0...watake-ios-v0.18.0) (2026-08-07)
+
+
+### Features
+
+* **ocr:** add private page OCR ([ae9c8d4](https://github.com/STE-Brand-Nova/watake_ios/commit/ae9c8d4a57409f7e9b9344fcc01dcb39ad403d91))
+* **ocr:** add private page OCR ([dda0a1e](https://github.com/STE-Brand-Nova/watake_ios/commit/dda0a1eb0df8efcbf6a976811f38cd1c19a64692))
+
 ## [0.17.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.16.0...watake-ios-v0.17.0) (2026-08-07)
 
 
