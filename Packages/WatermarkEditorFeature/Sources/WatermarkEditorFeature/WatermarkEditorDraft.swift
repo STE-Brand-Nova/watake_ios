@@ -160,21 +160,35 @@ public struct EditableWatermarkTextLayer: Codable, Equatable, Sendable {
 /// In-memory working copy. It deliberately has no document identifier,
 /// repository, or persistence operation: closing the editor discards it.
 public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
+    /// Safe defaults supplied the moment a person switches to tiled layout.
+    /// Chosen to produce a readable, non-crowded grid immediately.
+    public static let defaultTileSpacingX = 0.35
+    public static let defaultTileSpacingY = 0.28
+
     public private(set) var heading: EditableWatermarkTextLayer
     public private(set) var body: EditableWatermarkTextLayer
     public private(set) var caption: EditableWatermarkTextLayer
     public private(set) var image: EditableWatermarkImageLayer
+    public private(set) var layoutMode: WatermarkLayoutMode
+    public private(set) var tileSpacingX: Double?
+    public private(set) var tileSpacingY: Double?
 
     public init(
         heading: EditableWatermarkTextLayer = .init(),
         body: EditableWatermarkTextLayer = .init(),
         caption: EditableWatermarkTextLayer = .init(),
-        image: EditableWatermarkImageLayer = .init()
+        image: EditableWatermarkImageLayer = .init(),
+        layoutMode: WatermarkLayoutMode = .single,
+        tileSpacingX: Double? = nil,
+        tileSpacingY: Double? = nil
     ) {
         self.heading = heading
         self.body = body
         self.caption = caption
         self.image = image
+        self.layoutMode = layoutMode
+        self.tileSpacingX = tileSpacingX
+        self.tileSpacingY = tileSpacingY
     }
 
     public init(config: WatermarkConfig) {
@@ -192,6 +206,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
                 placement: $0.placement
             )
         } ?? .init()
+        layoutMode = config.layoutMode
+        tileSpacingX = config.tileSpacingX
+        tileSpacingY = config.tileSpacingY
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -199,6 +216,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         case body
         case caption
         case image
+        case layoutMode
+        case tileSpacingX
+        case tileSpacingY
     }
 
     public init(from decoder: any Decoder) throws {
@@ -207,6 +227,40 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         body = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .body) ?? .init()
         caption = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .caption) ?? .init()
         image = try container.decodeIfPresent(EditableWatermarkImageLayer.self, forKey: .image) ?? .init()
+        layoutMode = try container.decodeIfPresent(WatermarkLayoutMode.self, forKey: .layoutMode) ?? .single
+        tileSpacingX = try container.decodeIfPresent(Double.self, forKey: .tileSpacingX)
+        tileSpacingY = try container.decodeIfPresent(Double.self, forKey: .tileSpacingY)
+    }
+
+    /// Switching to tiled supplies safe defaults; switching to single clears
+    /// both spacing values so the contract's "single implies nil spacing"
+    /// invariant always holds for a value produced by the editor.
+    public mutating func setLayoutMode(_ value: WatermarkLayoutMode) {
+        layoutMode = value
+        switch value {
+        case .single:
+            tileSpacingX = nil
+            tileSpacingY = nil
+        case .tiled:
+            tileSpacingX = tileSpacingX ?? Self.defaultTileSpacingX
+            tileSpacingY = tileSpacingY ?? Self.defaultTileSpacingY
+        }
+    }
+
+    /// No-op outside tiled layout: spacing has no meaning for `.single`.
+    public mutating func setTileSpacingX(_ value: Double) {
+        guard layoutMode == .tiled else { return }
+        tileSpacingX = Self.clampedSpacing(value, fallback: Self.defaultTileSpacingX)
+    }
+
+    public mutating func setTileSpacingY(_ value: Double) {
+        guard layoutMode == .tiled else { return }
+        tileSpacingY = Self.clampedSpacing(value, fallback: Self.defaultTileSpacingY)
+    }
+
+    private static func clampedSpacing(_ value: Double, fallback: Double) -> Double {
+        guard value.isFinite else { return fallback }
+        return min(max(value, 0.10), 1.00)
     }
 
     public func layer(for kind: WatermarkTextLayerKind) -> EditableWatermarkTextLayer {
@@ -241,7 +295,10 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
             image: image.watermarkImageLayer(),
             globalPosition: .center,
             globalRotation: 0,
-            globalOpacity: 1
+            globalOpacity: 1,
+            layoutMode: layoutMode,
+            tileSpacingX: tileSpacingX,
+            tileSpacingY: tileSpacingY
         )
     }
 

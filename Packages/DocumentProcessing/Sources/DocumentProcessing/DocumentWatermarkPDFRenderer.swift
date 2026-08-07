@@ -97,6 +97,9 @@ public actor DocumentWatermarkPDFRenderer: WatermarkPDFRendering {
     }
 
     private static func validateSupportedConfiguration(_ config: WatermarkConfig) throws {
+        guard config.layoutMode == .single else {
+            throw WatermarkRenderError.unsupportedLayoutMode(config.layoutMode)
+        }
         if let heading = config.heading, isRenderable(heading) {
             throw WatermarkRenderError.unsupportedWatermarkLayer(.heading)
         }

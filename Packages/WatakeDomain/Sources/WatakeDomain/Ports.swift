@@ -84,6 +84,9 @@ public enum WatermarkRenderError: Error, Equatable, Sendable {
     /// An enabled layer other than `body` was requested. The basic renderer
     /// must fail loudly instead of silently dropping requested content.
     case unsupportedWatermarkLayer(UnsupportedWatermarkLayer)
+    /// A `layoutMode` other than `.single` was requested. The basic renderer
+    /// does not implement tiled PDF output yet.
+    case unsupportedLayoutMode(WatermarkLayoutMode)
     /// The page's `source` asset could not be read from the asset store.
     case sourceAssetUnreadable(pageIndex: Int)
     /// The page's `source` asset data could not be decoded as an image.

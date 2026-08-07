@@ -222,6 +222,33 @@ public final class WatermarkEditorModel: Identifiable {
         schedulePreview()
     }
 
+    public var layoutMode: WatermarkLayoutMode {
+        draft.layoutMode
+    }
+
+    public var tileSpacingX: Double? {
+        draft.tileSpacingX
+    }
+
+    public var tileSpacingY: Double? {
+        draft.tileSpacingY
+    }
+
+    public func setLayoutMode(_ value: WatermarkLayoutMode) {
+        draft.setLayoutMode(value)
+        schedulePreview()
+    }
+
+    public func setTileSpacingX(_ value: Double) {
+        draft.setTileSpacingX(value)
+        schedulePreview()
+    }
+
+    public func setTileSpacingY(_ value: Double) {
+        draft.setTileSpacingY(value)
+        schedulePreview()
+    }
+
     public func cancelPreviewWork() {
         previewTask?.cancel()
         imageImportTask?.cancel()

@@ -367,18 +367,28 @@ private func makeTextLayer(opacity: Double = 0.5, rotation: Double = 0) -> Water
     )
 }
 
-private func makeWatermarkConfig(schemaVersion: Int = 1, globalRotation: Double = 0, globalOpacity: Double = 0.5) -> WatermarkConfig {
+func makeWatermarkConfig(
+    schemaVersion: Int = 1,
+    globalRotation: Double = 0,
+    globalOpacity: Double = 0.5,
+    layoutMode: WatermarkLayoutMode = .single,
+    tileSpacingX: Double? = nil,
+    tileSpacingY: Double? = nil
+) -> WatermarkConfig {
     WatermarkConfig(
         schemaVersion: schemaVersion,
         automatic: true,
         body: makeTextLayer(),
         globalPosition: .center,
         globalRotation: globalRotation,
-        globalOpacity: globalOpacity
+        globalOpacity: globalOpacity,
+        layoutMode: layoutMode,
+        tileSpacingX: tileSpacingX,
+        tileSpacingY: tileSpacingY
     )
 }
 
-private func expectValidationError(_ expected: DomainValidationError, body: () throws -> Void) {
+func expectValidationError(_ expected: DomainValidationError, body: () throws -> Void) {
     do {
         try body()
         Issue.record("Expected \(expected)")
@@ -394,7 +404,7 @@ private func jsonObject(for value: some Encodable) throws -> [String: Any] {
     return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 }
 
-private func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {
+func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {
     let data = Data(json.utf8)
     return try WatakeContractCoding.makeJSONDecoder().decode(type, from: data)
 }

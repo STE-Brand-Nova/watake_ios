@@ -101,6 +101,36 @@ struct WatermarkPresetTests {
     }
 
     @MainActor
+    @Test func savingAndApplyingATiledPresetPreservesLayoutConfiguration() async {
+        let store = MemoryPresetStore()
+        let model = WatermarkEditorModel(presetStore: store)
+        model.setText("Recipient", for: .body)
+        model.setEnabled(true, for: .body)
+        model.setLayoutMode(.tiled)
+        model.setTileSpacingX(0.42)
+        model.setTileSpacingY(0.19)
+
+        model.savePreset(named: "Tiled preset")
+        await model.waitForPresetWork()
+
+        #expect(model.presetSaveState == .saved)
+        guard let saved = await store.presets().first else {
+            Issue.record("Expected saved preset")
+            return
+        }
+        #expect(saved.config.layoutMode == .tiled)
+        #expect(saved.config.tileSpacingX == 0.42)
+        #expect(saved.config.tileSpacingY == 0.19)
+
+        let freshModel = WatermarkEditorModel(presetStore: MemoryPresetStore())
+        freshModel.applyPreset(.init(preset: saved))
+
+        #expect(freshModel.layoutMode == .tiled)
+        #expect(freshModel.tileSpacingX == 0.42)
+        #expect(freshModel.tileSpacingY == 0.19)
+    }
+
+    @MainActor
     @Test func imageBearingDraftCannotSaveAndDoesNotWriteStorage() async {
         let draft = WatermarkEditorDraft(image: .init(assetReference: imageReference()))
         let store = MemoryPresetStore()
@@ -239,7 +269,13 @@ private func preset(name: String, body: String = "") -> WatermarkPreset {
     WatermarkPreset(id: UUID(), name: name, config: config(body: body), createdAt: .now, updatedAt: .now)
 }
 
-private func config(body: String, image: AssetReference? = nil) -> WatermarkConfig {
+private func config(
+    body: String,
+    image: AssetReference? = nil,
+    layoutMode: WatermarkLayoutMode = .single,
+    tileSpacingX: Double? = nil,
+    tileSpacingY: Double? = nil
+) -> WatermarkConfig {
     WatermarkConfig(
         automatic: false,
         body: .init(
@@ -263,7 +299,10 @@ private func config(body: String, image: AssetReference? = nil) -> WatermarkConf
         },
         globalPosition: .center,
         globalRotation: 0,
-        globalOpacity: 1
+        globalOpacity: 1,
+        layoutMode: layoutMode,
+        tileSpacingX: tileSpacingX,
+        tileSpacingY: tileSpacingY
     )
 }
 
