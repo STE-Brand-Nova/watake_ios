@@ -1,5 +1,6 @@
 import ArchiveServices
 import CaptureServices
+import DocumentProcessing
 import DocumentViewerFeature
 import Foundation
 import Observation
@@ -38,6 +39,7 @@ final class LibraryStore {
     private let archive: ArchiveService
     private let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
+    private let ocrRecognizer: VisionOCRRecognizer
 
     private(set) var folders: [Folder] = []
     private(set) var documentsByFolder: [UUID: [StoredDocument]] = [:]
@@ -64,6 +66,7 @@ final class LibraryStore {
         archive = ArchiveService(repository: storage)
         importer = ImportedDocumentService(repository: storage, assetStore: storage, serialiser: FolderScanOperationSerialiser())
         thumbnailCache = try? ThumbnailCache()
+        ocrRecognizer = VisionOCRRecognizer()
     }
 
     var activeFolders: [Folder] {
@@ -238,7 +241,16 @@ final class LibraryStore {
         let thumbnailLoader: any DocumentPageThumbnailLoading = thumbnailCache.map {
             DocumentPageThumbnailProvider(assetStore: storage, cache: $0)
         } ?? RawAssetThumbnailFallback(assetStore: storage)
-        let model = DocumentViewerModel(documentID: documentID, loader: storage, thumbnailLoader: thumbnailLoader)
+        let model = DocumentViewerModel(
+            documentID: documentID,
+            loader: storage,
+            thumbnailLoader: thumbnailLoader,
+            ocrRecognizer: ocrRecognizer,
+            ocrStore: storage,
+            onOCRPersisted: { [weak self] document in
+                self?.replaceCachedDocument(document)
+            }
+        )
         viewerModels[documentID] = model
         return model
     }
@@ -252,6 +264,13 @@ final class LibraryStore {
         } catch {
             return nil
         }
+    }
+
+    private func replaceCachedDocument(_ document: StoredDocument) {
+        guard var documents = documentsByFolder[document.folderId] else { return }
+        guard let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
+        documents[index] = document
+        documentsByFolder[document.folderId] = documents
     }
 
     private func run(_ operation: () async throws -> Void) async {

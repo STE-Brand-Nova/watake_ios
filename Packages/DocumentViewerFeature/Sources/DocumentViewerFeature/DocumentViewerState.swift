@@ -13,6 +13,12 @@ extension DocumentPage {
     public var isShowingRectified: Bool {
         rectified != nil
     }
+
+    /// Derived from persisted OCR data so the viewer can still warn after it
+    /// is reopened, even when no extraction task is active.
+    public var hasLowConfidenceOCR: Bool {
+        ocrBlocks.contains { $0.confidence < 0.5 }
+    }
 }
 
 /// Privacy-safe, typed viewer failures. Never carry document names, OCR text,
@@ -28,6 +34,36 @@ public enum PageAssetState: Equatable, Sendable {
     case loading
     case loaded(Data)
     case failure(DocumentViewerError)
+}
+
+public enum DocumentViewerMode: String, CaseIterable, Equatable, Sendable {
+    case image
+    case text
+    case overlay
+
+    public var title: String {
+        switch self {
+        case .image: "Image"
+        case .text: "Text"
+        case .overlay: "Overlay"
+        }
+    }
+}
+
+public enum OCRExtractionState: Equatable, Sendable {
+    case idle
+    case extracting(completedPages: Int, totalPages: Int)
+    case cancelled
+    case noText
+    case completed(lowConfidence: Bool)
+    case failure
+
+    public var isExtracting: Bool {
+        if case .extracting = self {
+            return true
+        }
+        return false
+    }
 }
 
 /// A loaded document ready to display, with its pages ordered by `index`.

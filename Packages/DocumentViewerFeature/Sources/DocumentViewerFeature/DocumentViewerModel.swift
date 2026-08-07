@@ -11,17 +11,47 @@ import WatakeDomain
 @Observable
 public final class DocumentViewerModel {
     public private(set) var state: DocumentViewerState = .loading
+    public var displayMode: DocumentViewerMode = .image
+    public private(set) var ocrState: OCRExtractionState = .idle
 
     private let documentID: UUID
     private let loader: any DocumentPageAssetLoading
     private let thumbnailLoader: any DocumentPageThumbnailLoading
+    private let ocrRecognizer: any OCRRecognizing
+    private let ocrStore: any DocumentOCRPersisting
+    private let onOCRPersisted: @MainActor @Sendable (StoredDocument) -> Void
     private var loadTask: Task<Void, Never>?
     private var assetTask: Task<Void, Never>?
+    private var ocrTask: Task<Void, Never>?
 
-    public init(documentID: UUID, loader: any DocumentPageAssetLoading, thumbnailLoader: any DocumentPageThumbnailLoading) {
+    public convenience init(
+        documentID: UUID,
+        loader: any DocumentPageAssetLoading,
+        thumbnailLoader: any DocumentPageThumbnailLoading
+    ) {
+        self.init(
+            documentID: documentID,
+            loader: loader,
+            thumbnailLoader: thumbnailLoader,
+            ocrRecognizer: UnavailableOCRRecognizer(),
+            ocrStore: UnavailableDocumentOCRStore()
+        )
+    }
+
+    public init(
+        documentID: UUID,
+        loader: any DocumentPageAssetLoading,
+        thumbnailLoader: any DocumentPageThumbnailLoading,
+        ocrRecognizer: any OCRRecognizing,
+        ocrStore: any DocumentOCRPersisting,
+        onOCRPersisted: @escaping @MainActor @Sendable (StoredDocument) -> Void = { _ in }
+    ) {
         self.documentID = documentID
         self.loader = loader
         self.thumbnailLoader = thumbnailLoader
+        self.ocrRecognizer = ocrRecognizer
+        self.ocrStore = ocrStore
+        self.onOCRPersisted = onOCRPersisted
     }
 
     /// Loads (or reloads) the document. Cancels any in-flight load first so a
@@ -78,6 +108,22 @@ public final class DocumentViewerModel {
     public func cancel() {
         loadTask?.cancel()
         assetTask?.cancel()
+        ocrTask?.cancel()
+    }
+
+    /// Extracts private text for every page, then persists one complete,
+    /// validated document update. Existing OCR remains untouched until every
+    /// page finishes, so cancellation and failures cannot publish partial data.
+    public func extractText() {
+        guard !ocrState.isExtracting, case .content = state else { return }
+        ocrState = .extracting(completedPages: 0, totalPages: 0)
+        ocrTask = Task { [weak self] in
+            await self?.performTextExtraction()
+        }
+    }
+
+    public func cancelTextExtraction() {
+        ocrTask?.cancel()
     }
 
     /// Loads one page's downsampled, bounded-concurrency thumbnail for the
@@ -91,6 +137,11 @@ public final class DocumentViewerModel {
     func waitUntilIdle() async {
         await loadTask?.value
         await assetTask?.value
+    }
+
+    /// Test-only synchronization point for OCR work.
+    func waitUntilOCRIdle() async {
+        await ocrTask?.value
     }
 
     private func performLoad() async {
@@ -168,5 +219,137 @@ public final class DocumentViewerModel {
         }
         mutate(&content)
         state = .content(content)
+    }
+
+    private func performTextExtraction() async {
+        do {
+            guard let document = try await ocrStore.document(id: documentID) else {
+                throw OCRRecognitionError.requestFailed
+            }
+            let output = try await recognizePages(in: document)
+            guard output.hasText else {
+                ocrState = .noText
+                return
+            }
+            try await persistOCR(output, for: document)
+        } catch is CancellationError {
+            ocrState = .cancelled
+        } catch {
+            guard !Task.isCancelled else {
+                ocrState = .cancelled
+                return
+            }
+            ocrState = .failure
+        }
+    }
+
+    private func recognizePages(in document: StoredDocument) async throws -> OCRExtractionOutput {
+        let pages = document.pages.sorted { $0.index < $1.index }
+        ocrState = .extracting(completedPages: 0, totalPages: pages.count)
+        var output = OCRExtractionOutput()
+
+        for (offset, page) in pages.enumerated() {
+            try Task.checkCancellation()
+            let imageData = try await readOCRAsset(page: page)
+            let result = try await ocrRecognizer.recognize(imageData: imageData, configuration: OCRConfiguration())
+            try Task.checkCancellation()
+            try result.validate()
+            output.append(result, replacing: page)
+            ocrState = .extracting(completedPages: offset + 1, totalPages: pages.count)
+        }
+        return output
+    }
+
+    private func persistOCR(_ output: OCRExtractionOutput, for document: StoredDocument) async throws {
+        try Task.checkCancellation()
+        let updatedDocument = StoredDocument(
+            id: document.id,
+            folderId: document.folderId,
+            name: document.name,
+            createdAt: document.createdAt,
+            updatedAt: Date(),
+            orderIndex: document.orderIndex,
+            pages: output.pages,
+            deletedAt: document.deletedAt,
+            tagIds: document.tagIds,
+            watermarkPresetId: document.watermarkPresetId
+        )
+        try updatedDocument.validate()
+        try await ocrStore.saveDocument(updatedDocument)
+        updateContent(with: updatedDocument)
+        onOCRPersisted(updatedDocument)
+        ocrState = .completed(lowConfidence: output.lowestConfidence < 0.5)
+    }
+
+    private func updateContent(with document: StoredDocument) {
+        guard case .content(let content) = state else { return }
+        state = .content(
+            DocumentViewerContent(
+                document: document,
+                pages: document.pages,
+                selectedPageID: content.selectedPageID,
+                pageAsset: content.pageAsset,
+                isPageAssetRectified: content.isPageAssetRectified
+            )
+        )
+    }
+
+    private func readOCRAsset(page: DocumentPage) async throws -> Data {
+        if let rectified = page.rectified {
+            do {
+                return try await ocrStore.readAsset(rectified)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // OCR uses same healthy-source fallback as viewer rendering.
+            }
+        }
+        return try await ocrStore.readAsset(page.source)
+    }
+}
+
+private struct OCRExtractionOutput {
+    private(set) var pages: [DocumentPage] = []
+    private(set) var hasText = false
+    private(set) var lowestConfidence = 1.0
+
+    mutating func append(_ result: OCRRecognitionResult, replacing page: DocumentPage) {
+        guard result.hasText else {
+            // A complete no-text result must never erase usable OCR.
+            pages.append(page)
+            return
+        }
+        hasText = true
+        lowestConfidence = min(lowestConfidence, result.blocks.map(\.confidence).min() ?? 1)
+        pages.append(
+            DocumentPage(
+                id: page.id,
+                index: page.index,
+                source: page.source,
+                rectified: page.rectified,
+                ocrText: result.text,
+                ocrBlocks: result.blocks
+            )
+        )
+    }
+}
+
+private struct UnavailableOCRRecognizer: OCRRecognizing {
+    func recognize(imageData _: Data, configuration _: OCRConfiguration) async throws -> OCRRecognitionResult {
+        throw OCRRecognitionError.requestFailed
+    }
+}
+
+private struct UnavailableDocumentOCRStore: DocumentOCRPersisting {
+    func document(id _: UUID) async throws -> StoredDocument? {
+        nil
+    }
+
+    func readAsset(_: AssetReference) async throws -> Data {
+        throw OCRRecognitionError.imageUnreadable
+    }
+
+    func saveDocument(_: StoredDocument) async throws {
+        throw OCRRecognitionError.requestFailed
     }
 }

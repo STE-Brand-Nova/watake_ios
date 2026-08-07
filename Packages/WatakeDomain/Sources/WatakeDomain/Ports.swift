@@ -65,6 +65,62 @@ public protocol DocumentPageThumbnailLoading: Sendable {
     func thumbnail(for page: DocumentPage) async throws -> Data
 }
 
+/// Private, on-device text recognition boundary. Implementations own image
+/// decoding and platform framework objects; callers exchange only value types.
+public protocol OCRRecognizing: Sendable {
+    func recognize(imageData: Data, configuration: OCRConfiguration) async throws -> OCRRecognitionResult
+}
+
+public struct OCRConfiguration: Equatable, Sendable {
+    public let preferredLanguages: [String]
+
+    public init(preferredLanguages: [String] = []) {
+        self.preferredLanguages = preferredLanguages
+    }
+}
+
+/// Complete OCR output for one page. An empty `text` and `blocks` pair is a
+/// valid no-text result, not a processing failure.
+public struct OCRRecognitionResult: Equatable, Sendable {
+    public let text: String
+    public let blocks: [OCRBlock]
+
+    public init(text: String, blocks: [OCRBlock]) {
+        self.text = text.normalizedLineEndings()
+        self.blocks = blocks
+    }
+
+    public var hasText: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public func validate() throws {
+        if hasText {
+            guard !blocks.isEmpty else { throw DomainValidationError.emptyOCRText }
+        } else {
+            guard blocks.isEmpty else { throw DomainValidationError.emptyOCRText }
+        }
+        try blocks.forEach { try $0.validate() }
+    }
+}
+
+/// Narrow read/write boundary for OCR. Keeps feature code independent from a
+/// storage implementation while allowing one validated document update after
+/// every page has completed recognition.
+public protocol DocumentOCRPersisting: Sendable {
+    func document(id: UUID) async throws -> StoredDocument?
+    func readAsset(_ reference: AssetReference) async throws -> Data
+    func saveDocument(_ document: StoredDocument) async throws
+}
+
+/// Privacy-safe OCR failures. Never include recognized text, asset paths, or
+/// framework error payloads.
+public enum OCRRecognitionError: Error, Equatable, Sendable {
+    case imageUnreadable
+    case requestFailed
+    case invalidResult
+}
+
 /// Renders a document's immutable source pages plus one supported text
 /// watermark layer (`WatermarkConfig.body`) into a transient PDF. Never
 /// mutates, replaces, or deletes any source asset.
