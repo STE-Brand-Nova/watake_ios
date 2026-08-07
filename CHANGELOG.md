@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.15.0...watake-ios-v0.16.0) (2026-08-06)
+
+
+### Features
+
+* **watermark:** add local preset library ([5fdc722](https://github.com/STE-Brand-Nova/watake_ios/commit/5fdc722450ac938a1ae5a2cf767f4e0bdf6fb76b))
+* **watermark:** add local preset library ([aadfc99](https://github.com/STE-Brand-Nova/watake_ios/commit/aadfc997f3697a4e846f6364048042d03a2d2b67))
+
 ## [0.15.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.14.0...watake-ios-v0.15.0) (2026-08-06)
 
 
