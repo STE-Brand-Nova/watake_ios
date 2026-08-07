@@ -78,6 +78,87 @@ struct WatermarkEditorDraftTests {
         #expect(draft.watermarkConfig.renderableTextLayersInCompositionOrder.map(\.text) == ["Heading", "Body", "Caption"])
     }
 
+    @Test func switchingToTiledSuppliesSafeDefaultSpacing() {
+        var draft = WatermarkEditorDraft()
+
+        draft.setLayoutMode(.tiled)
+
+        #expect(draft.layoutMode == .tiled)
+        #expect(draft.tileSpacingX == WatermarkEditorDraft.defaultTileSpacingX)
+        #expect(draft.tileSpacingY == WatermarkEditorDraft.defaultTileSpacingY)
+    }
+
+    @Test func switchingToSingleClearsSpacing() {
+        var draft = WatermarkEditorDraft()
+        draft.setLayoutMode(.tiled)
+        draft.setTileSpacingX(0.5)
+        draft.setTileSpacingY(0.6)
+
+        draft.setLayoutMode(.single)
+
+        #expect(draft.layoutMode == .single)
+        #expect(draft.tileSpacingX == nil)
+        #expect(draft.tileSpacingY == nil)
+    }
+
+    @Test func reenteringTiledLayoutAfterClearingUsesSafeDefaultsAgain() {
+        var draft = WatermarkEditorDraft()
+        draft.setLayoutMode(.tiled)
+        draft.setTileSpacingX(0.5)
+        draft.setTileSpacingY(0.6)
+        draft.setLayoutMode(.single)
+
+        draft.setLayoutMode(.tiled)
+
+        #expect(draft.tileSpacingX == WatermarkEditorDraft.defaultTileSpacingX)
+        #expect(draft.tileSpacingY == WatermarkEditorDraft.defaultTileSpacingY)
+    }
+
+    @Test func tileSpacingSettersClampToContractRangeAndNoOpOutsideTiledLayout() {
+        var draft = WatermarkEditorDraft()
+        draft.setTileSpacingX(0.5)
+        draft.setTileSpacingY(0.5)
+        #expect(draft.tileSpacingX == nil)
+        #expect(draft.tileSpacingY == nil)
+
+        draft.setLayoutMode(.tiled)
+        draft.setTileSpacingX(5)
+        draft.setTileSpacingY(-1)
+
+        #expect(draft.tileSpacingX == 1.00)
+        #expect(draft.tileSpacingY == 0.10)
+    }
+
+    @Test func draftCodableRoundTripPreservesLayoutFields() throws {
+        var draft = WatermarkEditorDraft()
+        draft.setLayoutMode(.tiled)
+        draft.setTileSpacingX(0.42)
+        draft.setTileSpacingY(0.19)
+
+        let decoded = try JSONDecoder().decode(WatermarkEditorDraft.self, from: JSONEncoder().encode(draft))
+
+        #expect(decoded == draft)
+        #expect(decoded.watermarkConfig.layoutMode == .tiled)
+        #expect(decoded.watermarkConfig.tileSpacingX == 0.42)
+        #expect(decoded.watermarkConfig.tileSpacingY == 0.19)
+    }
+
+    @Test func draftDecodingLegacyJSONWithoutLayoutFieldsDefaultsToSingle() throws {
+        let json = """
+        {
+            "heading": {},
+            "body": {},
+            "caption": {}
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(WatermarkEditorDraft.self, from: Data(json.utf8))
+
+        #expect(decoded.layoutMode == .single)
+        #expect(decoded.tileSpacingX == nil)
+        #expect(decoded.tileSpacingY == nil)
+    }
+
     @MainActor
     @Test func editingOneLayerDoesNotChangeTheOtherTwo() async {
         let model = WatermarkEditorModel()

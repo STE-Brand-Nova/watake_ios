@@ -256,7 +256,10 @@ func makeConfig(
     image: WatermarkImageLayer? = nil,
     globalPosition: WatermarkPosition = .center,
     globalRotation: Double = 0,
-    globalOpacity: Double = 1
+    globalOpacity: Double = 1,
+    layoutMode: WatermarkLayoutMode = .single,
+    tileSpacingX: Double? = nil,
+    tileSpacingY: Double? = nil
 ) -> WatermarkConfig {
     WatermarkConfig(
         automatic: false,
@@ -266,6 +269,9 @@ func makeConfig(
         image: image,
         globalPosition: globalPosition,
         globalRotation: globalRotation,
-        globalOpacity: globalOpacity
+        globalOpacity: globalOpacity,
+        layoutMode: layoutMode,
+        tileSpacingX: tileSpacingX,
+        tileSpacingY: tileSpacingY
     )
 }

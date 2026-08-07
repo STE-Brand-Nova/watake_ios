@@ -231,6 +231,9 @@ extension WatermarkConfig {
         case globalPosition
         case globalRotation
         case globalOpacity
+        case layoutMode
+        case tileSpacingX
+        case tileSpacingY
     }
 
     public init(from decoder: Decoder) throws {
@@ -244,7 +247,12 @@ extension WatermarkConfig {
             image: container.decodeIfPresent(WatermarkImageLayer.self, forKey: .image),
             globalPosition: container.decode(WatermarkPosition.self, forKey: .globalPosition),
             globalRotation: container.decode(Double.self, forKey: .globalRotation),
-            globalOpacity: container.decode(Double.self, forKey: .globalOpacity)
+            globalOpacity: container.decode(Double.self, forKey: .globalOpacity),
+            // Omitted in configs serialized before this v1 field addition;
+            // those decode as `.single` with nil spacing.
+            layoutMode: container.decodeIfPresent(WatermarkLayoutMode.self, forKey: .layoutMode) ?? .single,
+            tileSpacingX: container.decodeIfPresent(Double.self, forKey: .tileSpacingX),
+            tileSpacingY: container.decodeIfPresent(Double.self, forKey: .tileSpacingY)
         )
         try validate()
     }
@@ -260,6 +268,15 @@ extension WatermarkConfig {
         try container.encode(globalPosition, forKey: .globalPosition)
         try container.encode(globalRotation, forKey: .globalRotation)
         try container.encode(globalOpacity, forKey: .globalOpacity)
+        // The bundle contract requires writers to emit the oldest format that
+        // represents the data: `.single` is the pre-tiling default, so it
+        // round-trips through legacy readers unchanged only if these three
+        // fields are omitted entirely rather than written as "single"/null.
+        if layoutMode != .single {
+            try container.encode(layoutMode, forKey: .layoutMode)
+            try container.encodeIfPresent(tileSpacingX, forKey: .tileSpacingX)
+            try container.encodeIfPresent(tileSpacingY, forKey: .tileSpacingY)
+        }
     }
 }
 

@@ -100,6 +100,30 @@ enum DomainValidation {
         }
     }
 
+    /// `.single` requires nil spacing; `.tiled` requires both axes present,
+    /// finite, and within the contract's `0.10...1.00` range. `isFinite`
+    /// alone excludes both NaN and infinite values.
+    static func validateTileSpacing(layoutMode: WatermarkLayoutMode, tileSpacingX: Double?, tileSpacingY: Double?) throws {
+        switch layoutMode {
+        case .single:
+            guard tileSpacingX == nil, tileSpacingY == nil else {
+                throw DomainValidationError.tileSpacingMustBeNilForSingleLayout
+            }
+        case .tiled:
+            guard let tileSpacingX, let tileSpacingY else {
+                throw DomainValidationError.tileSpacingRequiredForTiledLayout
+            }
+            try validateTileSpacingValue(tileSpacingX)
+            try validateTileSpacingValue(tileSpacingY)
+        }
+    }
+
+    private static func validateTileSpacingValue(_ value: Double) throws {
+        guard value.isFinite, value >= 0.10, value <= 1.00 else {
+            throw DomainValidationError.tileSpacingOutOfRange(value)
+        }
+    }
+
     private static func validateIndexes(_ indexes: [Int]) throws {
         let expectedIndexes = Array(0 ..< indexes.count)
         guard indexes.sorted() == expectedIndexes else {

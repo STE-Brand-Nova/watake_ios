@@ -133,10 +133,7 @@
             case .image:
                 WatermarkImageLayerInspector(model: model)
             case .global:
-                WatermarkUnavailableInspector(
-                    title: "Global controls",
-                    message: "Shared placement and automatic watermark controls arrive later."
-                )
+                WatermarkGlobalInspector(model: model)
             }
         }
     }
@@ -364,6 +361,76 @@
         }
     }
 
+    private struct WatermarkGlobalInspector: View {
+        @Bindable var model: WatermarkEditorModel
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: WatakeSpacing.lg) {
+                layoutPicker
+                if model.layoutMode == .tiled {
+                    spacingControls(
+                        title: "Horizontal spacing",
+                        value: model.tileSpacingX ?? WatermarkEditorDraft.defaultTileSpacingX,
+                        setValue: { model.setTileSpacingX($0) }
+                    )
+                    spacingControls(
+                        title: "Vertical spacing",
+                        value: model.tileSpacingY ?? WatermarkEditorDraft.defaultTileSpacingY,
+                        setValue: { model.setTileSpacingY($0) }
+                    )
+                }
+                WatermarkUnavailableInspector(
+                    title: "Position, rotation, opacity, automatic watermark",
+                    message: "Shared placement, rotation, opacity, and automatic watermark controls arrive later."
+                )
+            }
+        }
+
+        private var layoutPicker: some View {
+            VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                Text("Layout")
+                    .watakeType(.bodyEmphasis)
+                    .foregroundStyle(WatakeColor.text.primary)
+                Picker("Layout", selection: layoutBinding) {
+                    Text("Single").tag(WatermarkLayoutMode.single)
+                    Text("Tiled").tag(WatermarkLayoutMode.tiled)
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityLabel("Watermark layout")
+                .accessibilityValue(model.layoutMode == .single ? "Single" : "Tiled")
+            }
+        }
+
+        private func spacingControls(title: String, value: Double, setValue: @escaping (Double) -> Void) -> some View {
+            let binding = Binding(get: { value }, set: setValue)
+            return VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                Text(title)
+                    .watakeType(.bodyEmphasis)
+                    .foregroundStyle(WatakeColor.text.primary)
+                HStack(spacing: WatakeSpacing.sm) {
+                    Slider(value: binding, in: 0.10 ... 1.00, step: 0.01)
+                        .tint(WatakeColor.brand.primary)
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("\(title) slider")
+                    TextField(title, value: binding, format: .number.precision(.fractionLength(2)))
+                        .keyboardType(.decimalPad)
+                        .watermarkInputSurface()
+                        .frame(width: 88)
+                        .accessibilityLabel(title)
+                        .accessibilityValue(value.formatted(.number.precision(.fractionLength(2))))
+                }
+                Text("0.10 to 1.00")
+                    .watakeType(.caption)
+                    .foregroundStyle(WatakeColor.text.secondary)
+            }
+        }
+
+        private var layoutBinding: Binding<WatermarkLayoutMode> {
+            Binding(get: { model.layoutMode }, set: { model.setLayoutMode($0) })
+        }
+    }
+
     private struct WatermarkUnavailableInspector: View {
         let title: String
         let message: String
@@ -401,7 +468,7 @@
                         .resizable()
                         .interpolation(.high)
                         .frame(width: pageSize.width, height: pageSize.height)
-                    WatermarkPreviewCompositionView(preview: preview)
+                    WatermarkTiledCompositionView(preview: preview, pageSize: pageSize)
                         .frame(width: pageSize.width, height: pageSize.height)
                         .clipShape(Rectangle())
                 }
@@ -421,7 +488,13 @@
         private var previewAccessibilityValue: String {
             let textCount = preview.textLayers.count
             let textDescription = "\(textCount) visible text layer\(textCount == 1 ? "" : "s")"
-            return preview.hasRenderableImage ? "\(textDescription), 1 visible image layer" : textDescription
+            let imageDescription = preview.hasRenderableImage ? ", 1 visible image layer" : ""
+            switch preview.layoutMode {
+            case .single:
+                return "Single layout, \(textDescription)\(imageDescription)"
+            case .tiled:
+                return "Tiled layout, \(preview.tileCount) tiles, \(textDescription)\(imageDescription)"
+            }
         }
 
         private func fittedPageSize(in available: CGSize) -> CGSize {
@@ -498,6 +571,26 @@
         private var image: some View {
             if let imageData = preview.imageData, let image = UIImage(data: imageData) {
                 WatermarkPreviewImage(image: image, layer: preview.imageLayer)
+            }
+        }
+    }
+
+    /// Repeats the full existing composite at every calculated tile center.
+    /// Each tile gets the page's full frame so text/image scaling math stays
+    /// identical to the single-tile case; the caller clips the result to the
+    /// fitted page so tiles never draw into the neutral outer surface.
+    private struct WatermarkTiledCompositionView: View {
+        let preview: WatermarkEditorPreview
+        let pageSize: CGSize
+
+        var body: some View {
+            ZStack {
+                ForEach(preview.tilePoints.indices, id: \.self) { index in
+                    let point = preview.tilePoints[index]
+                    WatermarkPreviewCompositionView(preview: preview)
+                        .frame(width: pageSize.width, height: pageSize.height)
+                        .position(x: point.normalizedX * pageSize.width, y: point.normalizedY * pageSize.height)
+                }
             }
         }
     }

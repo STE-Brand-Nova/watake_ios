@@ -19,6 +19,9 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case imageScaleOutOfRange(Double)
     case invalidSchemaVersion(Int)
     case duplicateExportDraftPageIDs
+    case tileSpacingRequiredForTiledLayout
+    case tileSpacingMustBeNilForSingleLayout
+    case tileSpacingOutOfRange(Double)
 }
 
 public enum WatakeContractCoding {
@@ -263,6 +266,9 @@ public struct WatermarkConfig: Codable, Equatable, Sendable {
     public let globalPosition: WatermarkPosition
     public let globalRotation: Double
     public let globalOpacity: Double
+    public let layoutMode: WatermarkLayoutMode
+    public let tileSpacingX: Double?
+    public let tileSpacingY: Double?
 
     public init(
         schemaVersion: Int = 1,
@@ -273,7 +279,10 @@ public struct WatermarkConfig: Codable, Equatable, Sendable {
         image: WatermarkImageLayer? = nil,
         globalPosition: WatermarkPosition,
         globalRotation: Double,
-        globalOpacity: Double
+        globalOpacity: Double,
+        layoutMode: WatermarkLayoutMode = .single,
+        tileSpacingX: Double? = nil,
+        tileSpacingY: Double? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.automatic = automatic
@@ -284,12 +293,16 @@ public struct WatermarkConfig: Codable, Equatable, Sendable {
         self.globalPosition = globalPosition
         self.globalRotation = globalRotation
         self.globalOpacity = globalOpacity
+        self.layoutMode = layoutMode
+        self.tileSpacingX = tileSpacingX
+        self.tileSpacingY = tileSpacingY
     }
 
     public func validate() throws {
         try DomainValidation.validateSchemaVersion(schemaVersion)
         try DomainValidation.validateRotation(globalRotation)
         try DomainValidation.validateOpacity(globalOpacity)
+        try DomainValidation.validateTileSpacing(layoutMode: layoutMode, tileSpacingX: tileSpacingX, tileSpacingY: tileSpacingY)
         try heading?.validate()
         try body?.validate()
         try caption?.validate()
@@ -411,6 +424,14 @@ public enum WatermarkImagePlacement: String, Codable, Equatable, Sendable {
     case aboveText
     case leftOfText
     case rightOfText
+}
+
+/// Whether a watermark composite renders once or repeats across the page in
+/// a deterministic grid. See `WatermarkTileLayoutCalculator` for the tiled
+/// grid math.
+public enum WatermarkLayoutMode: String, Codable, Equatable, Sendable {
+    case single
+    case tiled
 }
 
 public struct WatermarkPreset: Identifiable, Codable, Equatable, Sendable {
