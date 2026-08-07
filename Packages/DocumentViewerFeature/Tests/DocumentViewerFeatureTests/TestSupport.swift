@@ -106,6 +106,124 @@ actor FakeThumbnailLoader: DocumentPageThumbnailLoading {
     }
 }
 
+actor FakeOCRStore: DocumentOCRPersisting, DocumentPageAssetLoading {
+    private var storedDocument: StoredDocument?
+    private var assets: [UUID: Data] = [:]
+    private(set) var saveCount = 0
+    private var suspendsSave = false
+    private var didStartSave = false
+    private var saveStartedContinuation: CheckedContinuation<Void, Never>?
+    private var saveCompletionContinuation: CheckedContinuation<Void, Never>?
+
+    func document(id: UUID) async throws -> StoredDocument? {
+        storedDocument?.id == id ? storedDocument : nil
+    }
+
+    func readAsset(_ reference: AssetReference) async throws -> Data {
+        guard let data = assets[reference.id] else { throw FakeLoaderError.missingFixture }
+        return data
+    }
+
+    func saveDocument(_ document: StoredDocument) async throws {
+        if suspendsSave {
+            didStartSave = true
+            saveStartedContinuation?.resume()
+            saveStartedContinuation = nil
+            await withCheckedContinuation { saveCompletionContinuation = $0 }
+        }
+        storedDocument = document
+        saveCount += 1
+    }
+
+    func seed(document: StoredDocument, assets: [UUID: Data]) {
+        storedDocument = document
+        self.assets = assets
+    }
+
+    func suspendNextSave() {
+        suspendsSave = true
+    }
+
+    var saveStarted: Void {
+        get async {
+            guard !didStartSave else { return }
+            await withCheckedContinuation { saveStartedContinuation = $0 }
+        }
+    }
+
+    func finishSave() {
+        suspendsSave = false
+        saveCompletionContinuation?.resume()
+        saveCompletionContinuation = nil
+    }
+}
+
+actor FakeOCRRecognizer: OCRRecognizing {
+    private var results: [OCRRecognitionResult] = []
+    private var failure = false
+    private var delayNanoseconds: UInt64?
+
+    func recognize(imageData _: Data, configuration _: OCRConfiguration) async throws -> OCRRecognitionResult {
+        if let delayNanoseconds {
+            try await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+        if failure {
+            throw OCRRecognitionError.requestFailed
+        }
+        guard !results.isEmpty else { return OCRRecognitionResult(text: "", blocks: []) }
+        return results.removeFirst()
+    }
+
+    func setResults(_ results: [OCRRecognitionResult]) {
+        self.results = results
+    }
+
+    func setFailure(_ failure: Bool) {
+        self.failure = failure
+    }
+
+    func setDelay(nanoseconds: UInt64) {
+        delayNanoseconds = nanoseconds
+    }
+}
+
+actor NonCooperativeOCRRecognizer: OCRRecognizing {
+    private var result: OCRRecognitionResult?
+    private var didStart = false
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var completionContinuation: CheckedContinuation<Void, Never>?
+
+    func recognize(imageData _: Data, configuration _: OCRConfiguration) async throws -> OCRRecognitionResult {
+        didStart = true
+        startedContinuation?.resume()
+        startedContinuation = nil
+        await withCheckedContinuation { completionContinuation = $0 }
+        return result ?? OCRRecognitionResult(text: "", blocks: [])
+    }
+
+    var started: Void {
+        get async {
+            guard !didStart else { return }
+            await withCheckedContinuation { startedContinuation = $0 }
+        }
+    }
+
+    func finish(with result: OCRRecognitionResult) {
+        self.result = result
+        completionContinuation?.resume()
+        completionContinuation = nil
+    }
+}
+
+@MainActor
+final class OCRPersistenceRecorder: @unchecked Sendable {
+    private(set) var documents: [StoredDocument] = []
+
+    func record(_ document: StoredDocument) {
+        documents.append(document)
+    }
+}
+
 func makeAssetReference(id: UUID = UUID(), path: String = "page.bin") -> AssetReference {
     AssetReference(
         id: id,

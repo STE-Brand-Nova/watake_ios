@@ -157,6 +157,42 @@ struct DomainValidationTests {
         #expect(page.ocrText == "one\ntwo\nthree")
     }
 
+    @Test("OCR result normalizes text and requires matching blocks")
+    func OCRResultNormalizesText() throws {
+        let block = OCRBlock(
+            id: fixedUUID(12),
+            text: "synthetic\r\ntext",
+            confidence: 0.8,
+            bounds: NormalizedRect(originX: 0, originY: 0, width: 0.2, height: 0.2),
+            language: "en-US"
+        )
+        let result = OCRRecognitionResult(text: "synthetic\r\ntext", blocks: [block])
+
+        #expect(result.text == "synthetic\ntext")
+        try result.validate()
+    }
+
+    @Test("OCR block rejects invalid confidence and empty text")
+    func OCRBlockValidation() {
+        let invalidConfidence = OCRBlock(
+            id: fixedUUID(13),
+            text: "synthetic",
+            confidence: 1.1,
+            bounds: NormalizedRect(originX: 0, originY: 0, width: 0.2, height: 0.2)
+        )
+        expectValidationError(.ocrConfidenceOutOfRange(1.1)) {
+            try invalidConfidence.validate()
+        }
+        let emptyText = OCRBlock(
+            id: fixedUUID(14),
+            text: " \n",
+            bounds: NormalizedRect(originX: 0, originY: 0, width: 0.2, height: 0.2)
+        )
+        expectValidationError(.emptyOCRText) {
+            try emptyText.validate()
+        }
+    }
+
     @Test("key models round-trip through contract Codable")
     func codableRoundTrip() throws {
         let models = KeyModels(

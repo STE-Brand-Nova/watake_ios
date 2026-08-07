@@ -82,6 +82,19 @@ enum DomainValidation {
         }
     }
 
+    static func validateBCP47LanguageTag(_ value: String) throws {
+        let subtags = value.split(separator: "-", omittingEmptySubsequences: false)
+        let hasValidPrimaryLanguage = subtags.first.map {
+            (2 ... 8).contains($0.count) && $0.allSatisfy(\.isLetter)
+        } ?? false
+        let hasValidSubtags = subtags.dropFirst().allSatisfy {
+            (1 ... 8).contains($0.count) && $0.allSatisfy { $0.isLetter || $0.isNumber }
+        }
+        guard hasValidPrimaryLanguage, hasValidSubtags else {
+            throw DomainValidationError.invalidOCRLanguageTag(value)
+        }
+    }
+
     static func validateOpacity(_ value: Double) throws {
         guard value >= 0, value <= 1 else {
             throw DomainValidationError.opacityOutOfRange(value)

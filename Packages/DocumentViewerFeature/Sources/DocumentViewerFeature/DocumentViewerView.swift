@@ -54,6 +54,9 @@
                     watermarkEditor = nil
                 }
             }
+            .overlay(alignment: .bottom) {
+                OCRExtractionProgress(state: model.ocrState, cancel: model.cancelTextExtraction)
+            }
             .onKeyPress(.escape) {
                 guard let onClose else { return .ignored }
                 onClose()
@@ -103,6 +106,17 @@
                             .disabled(!isPageLoaded(content))
                             .accessibilityHint("Edits an in-memory watermark preview")
                         }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            if model.ocrState.isExtracting {
+                                Button("Cancel extraction") { model.cancelTextExtraction() }
+                                    .accessibilityLabel("Cancel text extraction")
+                            } else {
+                                Button { model.extractText() } label: {
+                                    Label("Extract Text", systemImage: "text.viewfinder")
+                                }
+                                .accessibilityHint("Extracts private text from every page on this device")
+                            }
+                        }
                     }
             }
         }
@@ -112,6 +126,30 @@
                 true
             } else {
                 false
+            }
+        }
+    }
+
+    private struct OCRExtractionProgress: View {
+        let state: OCRExtractionState
+        let cancel: () -> Void
+
+        var body: some View {
+            if case .extracting(let completedPages, let totalPages) = state {
+                HStack(spacing: WatakeSpacing.sm) {
+                    ProgressView()
+                    Text("Extracting text \(completedPages) of \(totalPages)")
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.text.primary)
+                    Spacer(minLength: 0)
+                    WatakeButton("Cancel", variant: .secondary, accessibilityIdentifier: "documentViewer.cancelOCR", action: cancel)
+                }
+                .padding(WatakeSpacing.sm)
+                .background(WatakeColor.surface.raised)
+                .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.md))
+                .padding(WatakeSpacing.md)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Text extraction in progress: \(completedPages) of \(totalPages) pages")
             }
         }
     }

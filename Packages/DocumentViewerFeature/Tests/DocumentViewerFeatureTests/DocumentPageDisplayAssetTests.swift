@@ -23,4 +23,25 @@ struct DocumentPageDisplayAssetTests {
         #expect(page.displayAsset == source)
         #expect(!page.isShowingRectified)
     }
+
+    @Test("low-confidence OCR remains detectable from persisted page data")
+    func lowConfidenceOCRPersistsAcrossViewerSessions() {
+        let source = makeAssetReference()
+        let page = DocumentPage(
+            id: UUID(),
+            index: 0,
+            source: source,
+            ocrText: "uncertain",
+            ocrBlocks: [
+                OCRBlock(
+                    id: UUID(),
+                    text: "uncertain",
+                    confidence: 0.49,
+                    bounds: NormalizedRect(originX: 0, originY: 0, width: 0.5, height: 0.1)
+                )
+            ]
+        )
+
+        #expect(page.hasLowConfidenceOCR)
+    }
 }

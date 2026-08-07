@@ -146,7 +146,9 @@ extension OCRBlock {
     enum CodingKeys: String, CodingKey {
         case id
         case text
+        case confidence
         case bounds
+        case language
     }
 
     public init(from decoder: Decoder) throws {
@@ -154,7 +156,9 @@ extension OCRBlock {
         try self.init(
             id: container.decodeLowercaseUUID(forKey: .id),
             text: container.decode(String.self, forKey: .text),
-            bounds: container.decode(NormalizedRect.self, forKey: .bounds)
+            confidence: container.decodeIfPresent(Double.self, forKey: .confidence) ?? 1,
+            bounds: container.decode(NormalizedRect.self, forKey: .bounds),
+            language: container.decodeIfPresent(String.self, forKey: .language)
         )
         try validate()
     }
@@ -163,7 +167,9 @@ extension OCRBlock {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeLowercaseUUID(id, forKey: .id)
         try container.encode(text, forKey: .text)
+        try container.encode(confidence, forKey: .confidence)
         try container.encode(bounds, forKey: .bounds)
+        try container.encodeIfPresent(language, forKey: .language)
     }
 }
 

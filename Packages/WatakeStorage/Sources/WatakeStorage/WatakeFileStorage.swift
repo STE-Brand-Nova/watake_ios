@@ -483,3 +483,7 @@ extension WatakeFileStorage: WatermarkPresetStore {}
 /// `document(id:)` and `readAsset(_:)` already satisfy this narrower port via
 /// the `DocumentRepository`/`DocumentAssetStore` conformances above.
 extension WatakeFileStorage: DocumentPageAssetLoading {}
+
+/// OCR uses the same encrypted record transaction as every other document
+/// metadata update. No OCR content is written outside app-controlled storage.
+extension WatakeFileStorage: DocumentOCRPersisting {}

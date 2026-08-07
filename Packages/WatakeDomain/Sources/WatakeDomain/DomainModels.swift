@@ -14,6 +14,9 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case invalidSHA256(String)
     case invalidByteSize(Int)
     case ocrBoundsOutsideUnitSquare
+    case emptyOCRText
+    case ocrConfidenceOutOfRange(Double)
+    case invalidOCRLanguageTag(String)
     case opacityOutOfRange(Double)
     case rotationOutOfRange(Double)
     case imageScaleOutOfRange(Double)
@@ -135,6 +138,13 @@ public struct StoredDocument: Identifiable, Codable, Equatable, Sendable {
         try DomainValidation.validateUniqueTagIDs(tagIds)
         try pages.forEach { try $0.validate() }
     }
+
+    public var hasOCRText: Bool {
+        pages.contains { page in
+            guard let text = page.ocrText else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 }
 
 public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
@@ -226,15 +236,34 @@ public struct NormalizedRect: Codable, Equatable, Sendable {
 public struct OCRBlock: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let text: String
+    public let confidence: Double
     public let bounds: NormalizedRect
+    public let language: String?
 
-    public init(id: UUID, text: String, bounds: NormalizedRect) {
+    public init(
+        id: UUID,
+        text: String,
+        confidence: Double = 1,
+        bounds: NormalizedRect,
+        language: String? = nil
+    ) {
         self.id = id
         self.text = text.normalizedLineEndings()
+        self.confidence = confidence
         self.bounds = bounds
+        self.language = language
     }
 
     public func validate() throws {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw DomainValidationError.emptyOCRText
+        }
+        guard confidence.isFinite, (0 ... 1).contains(confidence) else {
+            throw DomainValidationError.ocrConfidenceOutOfRange(confidence)
+        }
+        if let language {
+            try DomainValidation.validateBCP47LanguageTag(language)
+        }
         try bounds.validateForOCR()
     }
 }
