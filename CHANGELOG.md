@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.16.0...watake-ios-v0.17.0) (2026-08-07)
+
+
+### Features
+
+* **watermark:** add tiled watermark layout mode ([1856cbe](https://github.com/STE-Brand-Nova/watake_ios/commit/1856cbec44d328fb2312718e8f67e3b8a32d4c88))
+
 ## [0.16.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.15.0...watake-ios-v0.16.0) (2026-08-06)
 
 
