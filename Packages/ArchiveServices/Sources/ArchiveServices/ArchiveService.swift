@@ -9,6 +9,10 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case tagUnavailable
     case invalidReorder
     case sameFolder
+    /// Deliberately carries no label text — duplicate labels must never
+    /// reach an error message or log.
+    case duplicateTagLabel
+    case invalidTagColor
 }
 
 /// Curated tag colors from `Design.md`. UI presents these as named swatches;
@@ -94,10 +98,42 @@ public actor ArchiveService {
     }
 
     public func createTag(label: String, colorHex: String) async throws -> Tag {
-        let tag = Tag(id: UUID(), label: label, colorHex: colorHex)
+        let canonicalLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = Tag(id: UUID(), label: canonicalLabel, colorHex: colorHex)
         try tag.validate()
+        try await validateTagPolicy(label: canonicalLabel, colorHex: colorHex, excluding: nil)
         try await repository.saveTag(tag)
         return tag
+    }
+
+    /// Fetches the existing tag through the repository boundary, canonicalizes
+    /// and validates the new label, rejects duplicate labels and non-palette
+    /// colors, then saves a value with the original ID.
+    public func updateTag(id: UUID, label: String, colorHex: String) async throws -> Tag {
+        let allTags = try await repository.tags()
+        guard allTags.contains(where: { $0.id == id }) else { throw ArchiveError.tagUnavailable }
+        let canonicalLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updated = Tag(id: id, label: canonicalLabel, colorHex: colorHex)
+        try updated.validate()
+        try await validateTagPolicy(label: canonicalLabel, colorHex: colorHex, excluding: id, knownTags: allTags)
+        try await repository.saveTag(updated)
+        return updated
+    }
+
+    /// Fixed-palette and case-insensitive uniqueness policy for this feature.
+    /// `Tag.validate()` only checks the portable `#RRGGBB` format; this layer
+    /// enforces the stricter, feature-specific rules.
+    private func validateTagPolicy(label: String, colorHex: String, excluding excludedId: UUID?, knownTags: [Tag]? = nil) async throws {
+        guard ArchiveTagPalette.colors.contains(colorHex) else { throw ArchiveError.invalidTagColor }
+        let allTags: [Tag] = if let knownTags {
+            knownTags
+        } else {
+            try await repository.tags()
+        }
+        let isDuplicate = allTags.contains {
+            $0.id != excludedId && $0.label.caseInsensitiveCompare(label) == .orderedSame
+        }
+        guard !isDuplicate else { throw ArchiveError.duplicateTagLabel }
     }
 
     public func assign(tagIds: [UUID], to documentId: UUID) async throws -> StoredDocument {

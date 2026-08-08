@@ -34,6 +34,142 @@ struct ArchiveServiceTests {
         #expect(Set(updated.tagIds) == Set([red.id, blue.id]))
     }
 
+    @Test func assignRejectsDuplicateOrUnknownIDs() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let red = WatakeDomain.Tag(id: UUID(), label: "Work", colorHex: ArchiveTagPalette.colors[0])
+        let repository = MemoryRepository(folder: folder, documents: [document], tags: [red])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.tagUnavailable) {
+            try await service.assign(tagIds: [red.id, red.id], to: document.id)
+        }
+        await #expect(throws: ArchiveError.tagUnavailable) {
+            try await service.assign(tagIds: [UUID()], to: document.id)
+        }
+    }
+
+    @Test func sharedTagSurvivesUnassignmentFromOneDocument() async throws {
+        let folder = makeFolder()
+        let first = makeDocument(folder: folder, order: 0)
+        let second = makeDocument(folder: folder, order: 1)
+        let shared = WatakeDomain.Tag(id: UUID(), label: "Shared", colorHex: ArchiveTagPalette.colors[2])
+        let repository = MemoryRepository(folder: folder, documents: [first, second], tags: [shared])
+        let service = ArchiveService(repository: repository)
+
+        _ = try await service.assign(tagIds: [shared.id], to: first.id)
+        _ = try await service.assign(tagIds: [shared.id], to: second.id)
+        let firstAfterUnassign = try await service.assign(tagIds: [], to: first.id)
+
+        #expect(firstAfterUnassign.tagIds.isEmpty)
+        #expect(try await repository.document(id: second.id)?.tagIds == [shared.id])
+        #expect(try await repository.tags().map(\.id).contains(shared.id) == true)
+    }
+
+    @Test func palettePreservesOrderAndValues() {
+        #expect(ArchiveTagPalette.colors == [
+            "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16", "#22C55E",
+            "#14B8A6", "#06B6D4", "#3B82F6", "#8B5CF6", "#EC4899", "#64748B"
+        ])
+    }
+
+    @Test func createTagTrimsCanonicalLabel() async throws {
+        let repository = MemoryRepository(folder: makeFolder(), documents: [])
+        let service = ArchiveService(repository: repository)
+
+        let tag = try await service.createTag(label: "  Receipts  ", colorHex: ArchiveTagPalette.colors[0])
+        #expect(tag.label == "Receipts")
+    }
+
+    @Test func createTagRejectsEmptyLabel() async throws {
+        let repository = MemoryRepository(folder: makeFolder(), documents: [])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: DomainValidationError.self) {
+            try await service.createTag(label: "   ", colorHex: ArchiveTagPalette.colors[0])
+        }
+    }
+
+    @Test func createTagRejectsOverLongLabel() async throws {
+        let repository = MemoryRepository(folder: makeFolder(), documents: [])
+        let service = ArchiveService(repository: repository)
+        let tooLong = String(repeating: "a", count: 51)
+
+        await #expect(throws: DomainValidationError.self) {
+            try await service.createTag(label: tooLong, colorHex: ArchiveTagPalette.colors[0])
+        }
+    }
+
+    @Test func createTagRejectsDuplicateLabelIgnoringCase() async throws {
+        let existing = WatakeDomain.Tag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        let repository = MemoryRepository(folder: makeFolder(), documents: [], tags: [existing])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.duplicateTagLabel) {
+            try await service.createTag(label: "  receipts  ", colorHex: ArchiveTagPalette.colors[1])
+        }
+    }
+
+    @Test func createTagRejectsNonPaletteColor() async throws {
+        let repository = MemoryRepository(folder: makeFolder(), documents: [])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.invalidTagColor) {
+            try await service.createTag(label: "Receipts", colorHex: "#123456")
+        }
+    }
+
+    @Test func updateTagPreservesIDAndChangesValue() async throws {
+        let original = WatakeDomain.Tag(id: UUID(), label: "Old", colorHex: ArchiveTagPalette.colors[0])
+        let repository = MemoryRepository(folder: makeFolder(), documents: [], tags: [original])
+        let service = ArchiveService(repository: repository)
+
+        let updated = try await service.updateTag(id: original.id, label: "  New  ", colorHex: ArchiveTagPalette.colors[3])
+        #expect(updated.id == original.id)
+        #expect(updated.label == "New")
+        #expect(updated.colorHex == ArchiveTagPalette.colors[3])
+        #expect(try await repository.tags().first { $0.id == original.id }?.label == "New")
+    }
+
+    @Test func updateTagAllowsKeepingItsOwnLabel() async throws {
+        let original = WatakeDomain.Tag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        let repository = MemoryRepository(folder: makeFolder(), documents: [], tags: [original])
+        let service = ArchiveService(repository: repository)
+
+        let updated = try await service.updateTag(id: original.id, label: "Receipts", colorHex: ArchiveTagPalette.colors[1])
+        #expect(updated.colorHex == ArchiveTagPalette.colors[1])
+    }
+
+    @Test func updateTagRejectsDuplicateAgainstAnotherTag() async throws {
+        let first = WatakeDomain.Tag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        let second = WatakeDomain.Tag(id: UUID(), label: "Invoices", colorHex: ArchiveTagPalette.colors[1])
+        let repository = MemoryRepository(folder: makeFolder(), documents: [], tags: [first, second])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.duplicateTagLabel) {
+            try await service.updateTag(id: second.id, label: "receipts", colorHex: ArchiveTagPalette.colors[1])
+        }
+    }
+
+    @Test func updateTagRejectsNonPaletteColor() async throws {
+        let tag = WatakeDomain.Tag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        let repository = MemoryRepository(folder: makeFolder(), documents: [], tags: [tag])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.invalidTagColor) {
+            try await service.updateTag(id: tag.id, label: "Receipts", colorHex: "#123456")
+        }
+    }
+
+    @Test func updateTagRejectsUnknownID() async throws {
+        let repository = MemoryRepository(folder: makeFolder(), documents: [])
+        let service = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.tagUnavailable) {
+            try await service.updateTag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        }
+    }
+
     @Test func trashRestoreKeepsOriginalFolderAndRetention() async throws {
         let folder = makeFolder()
         let document = makeDocument(folder: folder, order: 0)
@@ -161,6 +297,46 @@ struct ArchiveServiceTests {
 
         #expect(try await storage.folder(id: folder.id)?.deletedAt == nil)
         #expect(try await storage.document(id: document.id)?.deletedAt != nil)
+    }
+
+    @Test func tagCreateAndAssignSurviveFileStorageReload() async throws {
+        let root = TestStorageRoot()
+        defer { try? FileManager.default.removeItem(at: root.url) }
+        let serviceName = "archive-services-tests.\(UUID().uuidString)"
+        defer { SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: serviceName] as CFDictionary) }
+        let storage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        let folder = makeFolder()
+        let bytes = Data("page".utf8)
+        let reference = AssetReference(
+            id: UUID(),
+            relativePath: "documents/\(UUID().uuidString.lowercased())/source/page.jpg",
+            sha256Hex: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+            byteSize: bytes.count,
+            mediaType: "image/jpeg"
+        )
+        try await storage.saveFolder(folder)
+        try await storage.saveAsset(bytes, reference: reference)
+        let document = StoredDocument(
+            id: UUID(), folderId: folder.id, name: "Scan", createdAt: folder.createdAt, updatedAt: folder.createdAt,
+            orderIndex: 0, pages: [DocumentPage(id: UUID(), index: 0, source: reference)]
+        )
+        try await storage.saveDocument(document)
+        let archive = ArchiveService(repository: storage)
+
+        let tag = try await archive.createTag(label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
+        _ = try await archive.assign(tagIds: [tag.id], to: document.id)
+
+        let reloadedStorage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        #expect(try await reloadedStorage.tags().map(\.id) == [tag.id])
+        #expect(try await reloadedStorage.document(id: document.id)?.tagIds == [tag.id])
     }
 }
 
