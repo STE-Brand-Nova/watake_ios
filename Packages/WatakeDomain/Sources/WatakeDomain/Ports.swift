@@ -22,6 +22,12 @@ public protocol DocumentRepository: Sendable {
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws
 }
 
+/// Read-only local archive search boundary. Feature UI receives typed value
+/// results and never enumerates encrypted records or reads OCR text itself.
+public protocol DocumentSearching: Sendable {
+    func search(_ query: DocumentSearchQuery) async throws -> [ArchiveSearchResult]
+}
+
 /// Narrow preset-only persistence boundary. Watermark editing must not depend
 /// on the document, tag, or asset repository surface.
 public protocol WatermarkPresetStore: Sendable {

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WatakeDomain
 
 /// Five-destination shell for available content width below 700pt. Uses
 /// `AppDestination.compactTabOrder` so Capture sits at the literal center,
@@ -19,10 +20,15 @@ struct CompactTabShell: View {
     var body: some View {
         VStack(spacing: 0) {
             NavigationStack {
-                DestinationRootView(destination: router.selection, library: library)
+                DestinationRootView(destination: router.selection, library: library, onOpenSearchResult: openSearchResult)
             }
 
             CompactTabBar(router: router)
         }
+    }
+
+    private func openSearchResult(_ result: ArchiveSearchResult) {
+        library.openSearchResult(result)
+        router.selection = .library
     }
 }

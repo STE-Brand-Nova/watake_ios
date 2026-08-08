@@ -8,8 +8,12 @@ import WatakeDomain
 struct LibraryView: View {
     @Bindable var store: LibraryStore
     @State private var isCreatingFolder = false
-    @State private var selectedFolder: Folder?
     @State private var editingFolder: Folder?
+
+    private var selectedFolder: Folder? {
+        guard let selectedFolderID = store.selectedFolderID else { return nil }
+        return store.folder(for: selectedFolderID)
+    }
 
     var body: some View {
         Group {
@@ -31,7 +35,7 @@ struct LibraryView: View {
         .toolbar {
             if selectedFolder != nil {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Folders") { selectedFolder = nil }.accessibilityLabel("Back to folders")
+                    Button("Folders") { store.closeFolder() }.accessibilityLabel("Back to folders")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -55,12 +59,16 @@ struct LibraryView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: WatakeSpacing.md) {
                     ForEach(store.activeFolders) { folder in
-                        Button { selectedFolder = folder } label: { FolderCard(folder: folder, count: store.documents(in: folder).count) }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Rename or change color") { editingFolder = folder }
-                                Button("Move to Trash", role: .destructive) { Task { await store.trashFolder(folder) } }
-                            }
+                        Button {
+                            store.openFolder(id: folder.id)
+                        } label: {
+                            FolderCard(folder: folder, count: store.documents(in: folder).count)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Rename or change color") { editingFolder = folder }
+                            Button("Move to Trash", role: .destructive) { Task { await store.trashFolder(folder) } }
+                        }
                     }
                 }
                 .padding(WatakeLayout.gutter(for: proxy.size.width))

@@ -5,6 +5,7 @@
 
 import DesignSystem
 import SwiftUI
+import WatakeDomain
 
 /// Minimal, truthful root content for a top-level destination. No feature
 /// behavior (capture, storage, OCR, watermarking, search, trash, settings)
@@ -12,6 +13,7 @@ import SwiftUI
 struct DestinationRootView: View {
     let destination: AppDestination
     @Bindable var library: LibraryStore
+    let onOpenSearchResult: (ArchiveSearchResult) -> Void
 
     var body: some View {
         Group {
@@ -22,7 +24,13 @@ struct DestinationRootView: View {
                 CaptureView(store: library)
             case .trash:
                 TrashView(store: library)
-            case .search, .settings:
+            case .search:
+                SearchView(
+                    model: library.searchModel,
+                    onOpen: onOpenSearchResult,
+                    onDismiss: library.resetSearch
+                )
+            case .settings:
                 WatakeEmptyState(systemImage: destination.systemImage, title: destination.label, message: message)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(WatakeColor.surface.base)
@@ -33,6 +41,6 @@ struct DestinationRootView: View {
     }
 
     private var message: String {
-        destination == .search ? "Search is not built yet." : "Settings are not built yet."
+        "Settings are not built yet."
     }
 }

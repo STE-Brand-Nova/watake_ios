@@ -1,6 +1,7 @@
 import ArchiveServices
 import CaptureServices
 import DocumentProcessing
+import DocumentSearchFeature
 import DocumentViewerFeature
 import Foundation
 import Observation
@@ -40,6 +41,7 @@ final class LibraryStore {
     private let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
     private let ocrRecognizer: VisionOCRRecognizer
+    let searchModel: DocumentSearchModel
 
     private(set) var folders: [Folder] = []
     private(set) var documentsByFolder: [UUID: [StoredDocument]] = [:]
@@ -52,6 +54,7 @@ final class LibraryStore {
     /// page survive width-class changes. Routes by `DocumentID`, never a
     /// `StoredDocument` instance or file URL.
     private(set) var selectedDocumentID: UUID?
+    private(set) var selectedFolderID: UUID?
     private var viewerModels: [UUID: DocumentViewerModel] = [:]
 
     private var layoutByFolder: [UUID: DocumentLayout] = [:]
@@ -67,6 +70,7 @@ final class LibraryStore {
         importer = ImportedDocumentService(repository: storage, assetStore: storage, serialiser: FolderScanOperationSerialiser())
         thumbnailCache = try? ThumbnailCache()
         ocrRecognizer = VisionOCRRecognizer()
+        searchModel = DocumentSearchModel(searcher: LocalDocumentSearchService(repository: storage))
     }
 
     var activeFolders: [Folder] {
@@ -220,7 +224,34 @@ final class LibraryStore {
     }
 
     func openDocument(_ document: StoredDocument) {
+        selectedFolderID = document.folderId
         selectedDocumentID = document.id
+    }
+
+    func openFolder(id: UUID) {
+        selectedDocumentID = nil
+        selectedFolderID = id
+    }
+
+    func closeFolder() {
+        closeDocument()
+        selectedFolderID = nil
+    }
+
+    func openSearchResult(_ result: ArchiveSearchResult) {
+        switch result {
+        case .folder(let folder):
+            openFolder(id: folder.id)
+        case .document(let document):
+            selectedFolderID = document.folderID
+            selectedDocumentID = document.id
+        }
+    }
+
+    /// Keeps the search field and rendered search state in the same feature
+    /// model when the app shell switches away from Search.
+    func resetSearch() {
+        searchModel.reset()
     }
 
     func closeDocument() {
