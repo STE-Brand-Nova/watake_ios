@@ -59,11 +59,26 @@ final class LibraryStore {
 
     private var layoutByFolder: [UUID: DocumentLayout] = [:]
 
-    init() {
+    /// In-session, single-tag filter for the active folder's document
+    /// browser. Not persisted and kept above the compact/regular/expanded
+    /// layout branch so a width-class change never discards it.
+    private(set) var selectedTagFilterID: UUID?
+
+    convenience init() {
+        self.init(
+            storageSubdirectory: "Watake",
+            keychainService: "com.watake.assets"
+        )
+    }
+
+    /// Test-only seam: a distinct `storageSubdirectory`/`keychainService`
+    /// isolates a `LibraryStore` instance's Application Support directory and
+    /// keychain items from the real app archive and from other test runs.
+    init(storageSubdirectory: String, keychainService: String) {
         let storage = WatakeFileStorage(
-            rootResolver: ApplicationSupportRootResolver(),
+            rootResolver: ApplicationSupportRootResolver(subdirectory: storageSubdirectory),
             protectionApplier: UntilFirstUnlockFileProtection(),
-            encryptionKeyStore: KeychainEncryptionKeyStore(service: "com.watake.assets")
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: keychainService)
         )
         self.storage = storage
         archive = ArchiveService(repository: storage)
@@ -83,6 +98,19 @@ final class LibraryStore {
 
     func documents(in folder: Folder) -> [StoredDocument] {
         (documentsByFolder[folder.id] ?? []).filter { $0.deletedAt == nil }.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    /// `documents(in:)` filtered by `selectedTagFilterID`, if any. Never
+    /// changes folder counts, ordering, or persisted preferences — folder
+    /// cards must keep calling the unfiltered `documents(in:)`.
+    func filteredDocuments(in folder: Folder) -> [StoredDocument] {
+        let ordered = documents(in: folder)
+        guard let selectedTagFilterID else { return ordered }
+        return ordered.filter { $0.tagIds.contains(selectedTagFilterID) }
+    }
+
+    func setTagFilter(_ tag: Tag?) {
+        selectedTagFilterID = tag?.id
     }
 
     var trashedDocuments: [StoredDocument] {
@@ -190,12 +218,61 @@ final class LibraryStore {
         }
     }
 
-    func createTag(label: String, colorHex: String) async {
-        await run { _ = try await archive.createTag(label: label, colorHex: colorHex) }
+    /// Returns the created tag on success, or `nil` with `errorMessage` set
+    /// (duplicate label / non-palette color / persistence failure) so callers
+    /// can preserve the user's input instead of clearing it.
+    func createTag(label: String, colorHex: String) async -> Tag? {
+        do {
+            let tag = try await archive.createTag(label: label, colorHex: colorHex)
+            await load()
+            return tag
+        } catch let error as ArchiveError {
+            errorMessage = tagErrorMessage(error)
+            return nil
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return nil
+        }
     }
 
-    func assign(tagIds: [UUID], document: StoredDocument) async {
-        await run { _ = try await archive.assign(tagIds: tagIds, to: document.id) }
+    /// Returns the updated tag on success, or `nil` with `errorMessage` set.
+    func editTag(_ tag: Tag, label: String, colorHex: String) async -> Tag? {
+        do {
+            let updated = try await archive.updateTag(id: tag.id, label: label, colorHex: colorHex)
+            await load()
+            return updated
+        } catch let error as ArchiveError {
+            errorMessage = tagErrorMessage(error)
+            return nil
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return nil
+        }
+    }
+
+    private func tagErrorMessage(_ error: ArchiveError) -> String {
+        switch error {
+        case .duplicateTagLabel:
+            "A tag with that name already exists."
+        case .invalidTagColor:
+            "Choose one of the available tag colors."
+        default:
+            "Could not save changes. Your original pages are unchanged."
+        }
+    }
+
+    /// Returns whether the assignment succeeded so callers (e.g. the tag
+    /// assignment sheet) can keep the sheet open and show the error on
+    /// failure instead of dismissing as if it saved.
+    func assign(tagIds: [UUID], document: StoredDocument) async -> Bool {
+        do {
+            _ = try await archive.assign(tagIds: tagIds, to: document.id)
+            await load()
+            return true
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return false
+        }
     }
 
     func save(pages: [ImportedPage], grouping: GalleryGrouping, folder: Folder, name: String) async -> Bool {

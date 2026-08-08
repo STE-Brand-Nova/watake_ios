@@ -9,6 +9,7 @@ struct LibraryView: View {
     @Bindable var store: LibraryStore
     @State private var isCreatingFolder = false
     @State private var editingFolder: Folder?
+    @State private var isManagingTags = false
 
     private var selectedFolder: Folder? {
         guard let selectedFolderID = store.selectedFolderID else { return nil }
@@ -39,12 +40,20 @@ struct LibraryView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { isCreatingFolder = true } label: { Label("New folder", systemImage: "folder.badge.plus") }
+                Menu {
+                    Button { isCreatingFolder = true } label: { Label("New folder", systemImage: "folder.badge.plus") }
+                    Button { isManagingTags = true } label: { Label("Manage Tags", systemImage: "tag") }
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Library actions")
             }
         }
         .task { await store.load() }
         .sheet(isPresented: $isCreatingFolder) { FolderEditor(store: store) }
         .sheet(item: $editingFolder) { folder in FolderEdit(store: store, folder: folder) }
+        .sheet(isPresented: $isManagingTags) { TagManager(store: store) }
         .alert("Could not complete change", isPresented: errorBinding) { Button("OK") {} } message: {
             Text(store.errorMessage ?? "Try again.")
         }
@@ -150,14 +159,17 @@ private struct FolderDocumentsView: View {
     }
 
     private func documentBrowser(width: CGFloat) -> some View {
-        Group {
-            switch store.layout(for: folder) {
-            case .list: documentList
-            case .grid: documentGrid(width: width)
+        VStack(spacing: 0) {
+            TagFilterRow(store: store)
+            Group {
+                switch store.layout(for: folder) {
+                case .list: documentList
+                case .grid: documentGrid(width: width)
+                }
             }
         }
         .toolbar {
-            if store.layout(for: folder) == .list {
+            if store.layout(for: folder) == .list, store.selectedTagFilterID == nil {
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -185,7 +197,7 @@ private struct FolderDocumentsView: View {
     }
 
     private var documentList: some View {
-        let ordered = store.documents(in: folder)
+        let ordered = store.filteredDocuments(in: folder)
         return List {
             ForEach(Array(ordered.enumerated()), id: \.element.id) { index, document in
                 HStack(spacing: WatakeSpacing.md) {
@@ -196,11 +208,11 @@ private struct FolderDocumentsView: View {
                                 Text(document.name).foregroundStyle(WatakeColor.text.primary)
                                 Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
                                     .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                                if !document.tagIds.isEmpty {
+                                    DocumentTagChips(store: store, tagIds: document.tagIds)
+                                }
                             }
                             Spacer()
-                            if !document.tagIds.isEmpty {
-                                Image(systemName: "tag.fill").foregroundStyle(WatakeColor.status.warning)
-                            }
                         }
                         .contentShape(Rectangle())
                     }
@@ -213,6 +225,7 @@ private struct FolderDocumentsView: View {
                 }
             }
             .onMove { indexes, destination in
+                guard store.selectedTagFilterID == nil else { return }
                 var reordered = ordered
                 reordered.move(fromOffsets: indexes, toOffset: destination)
                 Task { await store.reorder(folder: folder, documents: reordered) }
@@ -226,7 +239,7 @@ private struct FolderDocumentsView: View {
     }
 
     private func documentGrid(width: CGFloat) -> some View {
-        let ordered = store.documents(in: folder)
+        let ordered = store.filteredDocuments(in: folder)
         return ScrollView {
             LazyVGrid(
                 columns: Array(
@@ -261,6 +274,9 @@ private struct FolderDocumentsView: View {
                         Text(document.name).watakeType(.bodyEmphasis).foregroundStyle(WatakeColor.text.primary).lineLimit(2)
                         Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
                             .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                        if !document.tagIds.isEmpty {
+                            DocumentTagChips(store: store, tagIds: document.tagIds)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -286,9 +302,9 @@ private struct FolderDocumentsView: View {
             Button("Move…") { movingDocument = document }
             Divider()
             Button("Move Up") { Task { await moveOrder(document: document, index: index, ordered: ordered, offset: -1) } }
-                .disabled(index == 0)
+                .disabled(index == 0 || store.selectedTagFilterID != nil)
             Button("Move Down") { Task { await moveOrder(document: document, index: index, ordered: ordered, offset: 1) } }
-                .disabled(index == ordered.count - 1)
+                .disabled(index == ordered.count - 1 || store.selectedTagFilterID != nil)
             Divider()
             Button("Move to Trash", role: .destructive) { Task { await store.trashDocument(document) } }
         } label: {
@@ -532,85 +548,4 @@ private struct FolderEdit: View {
             }
         }
     }
-}
-
-private struct TagAssignment: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: LibraryStore
-    let document: StoredDocument
-    @State private var selected: Set<UUID> = []
-    @State private var newTagLabel = ""
-    @State private var newTagColor = ArchiveTagPalette.colors[8]
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Create tag") {
-                    TextField("Tag label", text: $newTagLabel)
-                    PalettePicker(selection: $newTagColor)
-                    Button("Create tag") {
-                        Task {
-                            await store.createTag(label: newTagLabel, colorHex: newTagColor)
-                            newTagLabel = ""
-                        }
-                    }
-                    .disabled(newTagLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                Section("Assign tags") {
-                    ForEach(store.tags) { tag in
-                        Button {
-                            if selected.contains(tag.id) {
-                                selected.remove(tag.id)
-                            } else {
-                                selected.insert(tag.id)
-                            }
-                        } label: {
-                            Label(tag.label, systemImage: selected.contains(tag.id) ? "checkmark.circle.fill" : "circle")
-                        }
-                    }
-                }
-            }
-            .onAppear { selected = Set(document.tagIds) }
-            .navigationTitle("Tags")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            await store.assign(tagIds: Array(selected), document: document)
-                            dismiss()
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct PalettePicker: View {
-    @Binding var selection: String
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(44)), count: 4), spacing: WatakeSpacing.sm) {
-            ForEach(Array(ArchiveTagPalette.colors.enumerated()), id: \.element) { index, hex in
-                Button { selection = hex } label: {
-                    Circle().fill(tagColor(at: index)).frame(width: 32, height: 32)
-                        .overlay {
-                            if selection == hex {
-                                Image(systemName: "checkmark").foregroundStyle(WatakeColor.text.onPrimary)
-                            }
-                        }
-                }.accessibilityLabel("Tag color \(index + 1)")
-            }
-        }
-    }
-}
-
-private func tagColor(for hex: String) -> Color {
-    tagColor(at: ArchiveTagPalette.colors.firstIndex(of: hex) ?? 8)
-}
-
-private func tagColor(at index: Int) -> Color {
-    [
-        WatakeColor.tag.red, WatakeColor.tag.orange, WatakeColor.tag.amber, WatakeColor.tag.yellow,
-        WatakeColor.tag.lime, WatakeColor.tag.green, WatakeColor.tag.teal, WatakeColor.tag.cyan,
-        WatakeColor.tag.blue, WatakeColor.tag.violet, WatakeColor.tag.pink, WatakeColor.tag.slate
-    ][index]
 }
