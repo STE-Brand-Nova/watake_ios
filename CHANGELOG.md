@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.20.0...watake-ios-v0.21.0) (2026-08-08)
+
+
+### Features
+
+* **archive:** implement trash and restore ([24dc933](https://github.com/STE-Brand-Nova/watake_ios/commit/24dc9332fe32289aadc3979433a557decab0901d))
+* **archive:** implement trash and restore ([c06919e](https://github.com/STE-Brand-Nova/watake_ios/commit/c06919e3230b4a45d590ccf25a4827ad7c894c7c))
+
 ## [0.20.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.19.0...watake-ios-v0.20.0) (2026-08-08)
 
 
