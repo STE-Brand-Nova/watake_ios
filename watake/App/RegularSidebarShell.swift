@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WatakeDomain
 
 /// Sidebar shell for available content width 700pt and above.
 /// Declaration order in `AppDestination` puts Capture near the top.
@@ -20,9 +21,14 @@ struct RegularSidebarShell: View {
             .navigationTitle("Watake")
         } detail: {
             NavigationStack {
-                DestinationRootView(destination: router.selection, library: library)
+                DestinationRootView(destination: router.selection, library: library, onOpenSearchResult: openSearchResult)
             }
         }
+    }
+
+    private func openSearchResult(_ result: ArchiveSearchResult) {
+        library.openSearchResult(result)
+        router.selection = .library
     }
 
     /// `List` selection needs an optional binding; the router's selection

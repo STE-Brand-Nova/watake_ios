@@ -337,6 +337,15 @@ struct DomainValidationTests {
 
         #expect(decoded.ocrText == "one\ntwo\nthree")
     }
+
+    @Test("search normalizes case, diacritics, and whitespace")
+    func searchNormalization() {
+        let query = DocumentSearchQuery("  CAFE\u{301} \n  REPORT  ")
+
+        #expect(query.normalizedValue == "cafe report")
+        #expect(query.matches("Café\tReport"))
+        #expect(DocumentSearchQuery(" \n \t ").isEmpty)
+    }
 }
 
 private struct KeyModels: Codable, Equatable {

@@ -4,7 +4,10 @@
 //
 
 import CoreGraphics
+import DocumentSearchFeature
+import Foundation
 import Testing
+import WatakeDomain
 @testable import watake
 
 @MainActor
@@ -78,5 +81,52 @@ struct CaptureIntegrationTests {
         let store = LibraryStore()
         let activeFolders = await store.activeFolders()
         #expect(activeFolders.isEmpty == store.activeFolders.isEmpty)
+    }
+}
+
+@MainActor
+struct SearchRoutingTests {
+    @Test func leavingSearchDestinationResetsVisibleQueryAndState() {
+        let router = AppRouter()
+        let store = LibraryStore()
+        router.selection = .search
+        store.searchModel.updateQuery("synthetic")
+
+        #expect(store.searchModel.query == "synthetic")
+        #expect(store.searchModel.state == .loading)
+
+        router.selection = .library
+        store.resetSearch()
+
+        #expect(router.selection == .library)
+        #expect(store.searchModel.query.isEmpty)
+        #expect(store.searchModel.state == .emptyQuery)
+    }
+
+    @Test func documentSearchResultOpensOwningFolderAndViewer() {
+        let store = LibraryStore()
+        let folderID = UUID()
+        let documentID = UUID()
+        let result = ArchiveSearchResult.document(DocumentSearchResult(
+            id: documentID,
+            folderID: folderID,
+            name: "Synthetic document",
+            matchCategories: [.ocr]
+        ))
+
+        store.openSearchResult(result)
+
+        #expect(store.selectedFolderID == folderID)
+        #expect(store.selectedDocumentID == documentID)
+    }
+
+    @Test func folderSearchResultOpensFolderWithoutViewer() {
+        let store = LibraryStore()
+        let folderID = UUID()
+
+        store.openSearchResult(.folder(FolderSearchResult(id: folderID, name: "Synthetic folder", colorHex: "#3B82F6")))
+
+        #expect(store.selectedFolderID == folderID)
+        #expect(store.selectedDocumentID == nil)
     }
 }
