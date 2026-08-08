@@ -18,6 +18,18 @@ enum DocumentLayout: String, CaseIterable {
     case grid
 }
 
+/// Session-only offer for restoring the latest item sent to Trash. The item is
+/// already durably soft-deleted; this only controls temporary Library UI.
+enum TrashItemID: Equatable, Sendable {
+    case document(UUID)
+    case folder(UUID)
+}
+
+struct PendingTrashUndo: Equatable, Sendable {
+    let id: UUID
+    let item: TrashItemID
+}
+
 /// Degraded thumbnail path used only if `ThumbnailCache` construction fails
 /// (e.g. Caches directory unavailable). Reads the full-resolution asset
 /// uncached rather than making the rail non-functional; `DocumentPageThumbnailProvider`
@@ -41,6 +53,8 @@ final class LibraryStore {
     private let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
     private let ocrRecognizer: VisionOCRRecognizer
+    private let undoDuration: Duration
+    private let undoSleeper: @Sendable (Duration) async throws -> Void
     let searchModel: DocumentSearchModel
 
     private(set) var folders: [Folder] = []
@@ -48,6 +62,8 @@ final class LibraryStore {
     private(set) var tags: [Tag] = []
     var errorMessage: String?
     var isLoading = false
+    private(set) var pendingTrashUndo: PendingTrashUndo?
+    private var undoExpiryTask: Task<Void, Never>?
 
     /// Routing state for the document viewer, kept here (above the compact/
     /// regular/expanded shell split) so opening a document and its selected
@@ -74,7 +90,14 @@ final class LibraryStore {
     /// Test-only seam: a distinct `storageSubdirectory`/`keychainService`
     /// isolates a `LibraryStore` instance's Application Support directory and
     /// keychain items from the real app archive and from other test runs.
-    init(storageSubdirectory: String, keychainService: String) {
+    init(
+        storageSubdirectory: String,
+        keychainService: String,
+        undoDuration: Duration = .seconds(5),
+        undoSleeper: @escaping @Sendable (Duration) async throws -> Void = { duration in
+            try await Task.sleep(for: duration)
+        }
+    ) {
         let storage = WatakeFileStorage(
             rootResolver: ApplicationSupportRootResolver(subdirectory: storageSubdirectory),
             protectionApplier: UntilFirstUnlockFileProtection(),
@@ -85,6 +108,8 @@ final class LibraryStore {
         importer = ImportedDocumentService(repository: storage, assetStore: storage, serialiser: FolderScanOperationSerialiser())
         thumbnailCache = try? ThumbnailCache()
         ocrRecognizer = VisionOCRRecognizer()
+        self.undoDuration = undoDuration
+        self.undoSleeper = undoSleeper
         searchModel = DocumentSearchModel(searcher: LocalDocumentSearchService(repository: storage))
     }
 
@@ -97,7 +122,8 @@ final class LibraryStore {
     }
 
     func documents(in folder: Folder) -> [StoredDocument] {
-        (documentsByFolder[folder.id] ?? []).filter { $0.deletedAt == nil }.sorted { $0.orderIndex < $1.orderIndex }
+        guard self.folder(for: folder.id)?.deletedAt == nil else { return [] }
+        return (documentsByFolder[folder.id] ?? []).filter { $0.deletedAt == nil }.sorted { $0.orderIndex < $1.orderIndex }
     }
 
     /// `documents(in:)` filtered by `selectedTagFilterID`, if any. Never
@@ -163,22 +189,6 @@ final class LibraryStore {
         await run {
             _ = try await archive.rename(documentId: document.id, to: name)
         }
-    }
-
-    func trashDocument(_ document: StoredDocument) async {
-        await run { try await archive.moveToTrash(documentId: document.id) }
-    }
-
-    func restoreDocument(_ document: StoredDocument) async {
-        await run { try await archive.restore(documentId: document.id) }
-    }
-
-    func trashFolder(_ folder: Folder) async {
-        await run { try await archive.moveToTrash(folderId: folder.id) }
-    }
-
-    func restoreFolder(_ folder: Folder) async {
-        await run { try await archive.restore(folderId: folder.id) }
     }
 
     func reorder(folder: Folder, documents: [StoredDocument]) async {
@@ -390,5 +400,123 @@ final class LibraryStore {
         } catch {
             errorMessage = "Could not save changes. Your original pages are unchanged."
         }
+    }
+}
+
+// MARK: - Trash
+
+extension LibraryStore {
+    /// Returns true only after the durable soft deletion succeeds. A failed
+    /// operation does not replace an existing Undo offer.
+    func trashDocument(_ document: StoredDocument) async -> Bool {
+        await moveToTrash(.document(document.id))
+    }
+
+    /// Returns true only when the original active folder accepts restoration.
+    func restoreDocument(_ document: StoredDocument) async -> Bool {
+        await restoreManually(.document(document.id))
+    }
+
+    /// Returns true only after the folder tombstone is durable.
+    func trashFolder(_ folder: Folder) async -> Bool {
+        await moveToTrash(.folder(folder.id))
+    }
+
+    func restoreFolder(_ folder: Folder) async -> Bool {
+        await restoreManually(.folder(folder.id))
+    }
+
+    /// Restores the current offer by immutable ID. An unsuccessful attempt
+    /// leaves the offer visible until it expires so no success is implied.
+    func undoTrash() async -> Bool {
+        guard let pendingTrashUndo else { return false }
+        let undoID = pendingTrashUndo.id
+        let restored = await restore(pendingTrashUndo.item)
+        if restored {
+            clearUndoOffer(matching: undoID)
+        }
+        return restored
+    }
+
+    private func moveToTrash(_ item: TrashItemID) async -> Bool {
+        do {
+            switch item {
+            case .document(let id):
+                try await archive.moveToTrash(documentId: id)
+            case .folder(let id):
+                try await archive.moveToTrash(folderId: id)
+            }
+            await load()
+            offerUndo(for: item)
+            return true
+        } catch {
+            errorMessage = "Could not move item to Trash. Try again."
+            return false
+        }
+    }
+
+    /// A successful manual restore invalidates only an offer for the same
+    /// item that existed when restoration began. A newer offer remains valid.
+    private func restoreManually(_ item: TrashItemID) async -> Bool {
+        let matchingOfferID = pendingTrashUndo?.item == item ? pendingTrashUndo?.id : nil
+        let restored = await restore(item)
+        if restored, let matchingOfferID {
+            clearUndoOffer(matching: matchingOfferID)
+        }
+        return restored
+    }
+
+    private func restore(_ item: TrashItemID) async -> Bool {
+        do {
+            switch item {
+            case .document(let id):
+                try await archive.restore(documentId: id)
+            case .folder(let id):
+                try await archive.restore(folderId: id)
+            }
+            await load()
+            return true
+        } catch let error as ArchiveError {
+            errorMessage = restoreErrorMessage(error)
+            return false
+        } catch {
+            errorMessage = "Could not restore item. Try again."
+            return false
+        }
+    }
+
+    private func restoreErrorMessage(_ error: ArchiveError) -> String {
+        switch error {
+        case .folderUnavailable, .folderTrashed:
+            "This item can be restored after its original folder is available."
+        default:
+            "Could not restore item. Try again."
+        }
+    }
+
+    private func offerUndo(for item: TrashItemID) {
+        undoExpiryTask?.cancel()
+        let offer = PendingTrashUndo(id: UUID(), item: item)
+        pendingTrashUndo = offer
+        let duration = undoDuration
+        let sleeper = undoSleeper
+        undoExpiryTask = Task { [weak self] in
+            do {
+                try await sleeper(duration)
+                guard !Task.isCancelled else { return }
+                self?.clearUndoOffer(matching: offer.id)
+            } catch is CancellationError {
+                // Replaced or dismissed offers must not affect newer state.
+            } catch {
+                // Expiry is best-effort presentation state; archive data is safe.
+            }
+        }
+    }
+
+    private func clearUndoOffer(matching id: UUID) {
+        guard pendingTrashUndo?.id == id else { return }
+        undoExpiryTask?.cancel()
+        undoExpiryTask = nil
+        pendingTrashUndo = nil
     }
 }

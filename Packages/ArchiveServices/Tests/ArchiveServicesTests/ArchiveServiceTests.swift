@@ -169,7 +169,10 @@ struct ArchiveServiceTests {
             try await service.updateTag(id: UUID(), label: "Receipts", colorHex: ArchiveTagPalette.colors[0])
         }
     }
+}
 
+@Suite("Archive trash lifecycle")
+struct ArchiveTrashServiceTests {
     @Test func trashRestoreKeepsOriginalFolderAndRetention() async throws {
         let folder = makeFolder()
         let document = makeDocument(folder: folder, order: 0)
@@ -186,6 +189,102 @@ struct ArchiveServiceTests {
         #expect(try await repository.document(id: document.id)?.deletedAt == nil)
     }
 
+    @Test func documentTrashAndRestorePreserveAllDocumentMetadata() async throws {
+        let folder = makeFolder()
+        let source = AssetReference(
+            id: UUID(), relativePath: "documents/source.jpg", sha256Hex: String(repeating: "a", count: 64),
+            byteSize: 1, mediaType: "image/jpeg"
+        )
+        let rectified = AssetReference(
+            id: UUID(), relativePath: "documents/rectified.jpg", sha256Hex: String(repeating: "b", count: 64),
+            byteSize: 1, mediaType: "image/jpeg"
+        )
+        let document = StoredDocument(
+            id: UUID(), folderId: folder.id, name: "Scan", createdAt: folder.createdAt, updatedAt: folder.createdAt,
+            orderIndex: 3, pages: [DocumentPage(id: UUID(), index: 0, source: source, rectified: rectified)],
+            tagIds: [UUID(), UUID()], watermarkPresetId: UUID()
+        )
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let service = ArchiveService(repository: repository, now: { Date(timeIntervalSince1970: 1_700_001_000) })
+
+        try await service.moveToTrash(documentId: document.id)
+        let trashed = try #require(try await repository.document(id: document.id))
+        #expect(trashed.id == document.id)
+        #expect(trashed.folderId == document.folderId)
+        #expect(trashed.pages == document.pages)
+        #expect(trashed.tagIds == document.tagIds)
+        #expect(trashed.watermarkPresetId == document.watermarkPresetId)
+
+        try await service.restore(documentId: document.id)
+        let restored = try #require(try await repository.document(id: document.id))
+        #expect(restored.id == document.id)
+        #expect(restored.folderId == document.folderId)
+        #expect(restored.pages == document.pages)
+        #expect(restored.tagIds == document.tagIds)
+        #expect(restored.watermarkPresetId == document.watermarkPresetId)
+        #expect(restored.deletedAt == nil)
+    }
+
+    @Test func documentRestoreRejectsMissingOrTrashedOriginalFolder() async throws {
+        let missingFolder = makeFolder(name: "Missing")
+        let missingDocument = StoredDocument(
+            id: UUID(), folderId: missingFolder.id, name: "Scan", createdAt: missingFolder.createdAt,
+            updatedAt: missingFolder.createdAt, orderIndex: 0,
+            pages: [DocumentPage(id: UUID(), index: 0, source: testAssetReference())],
+            deletedAt: Date(timeIntervalSince1970: 1_700_001_000)
+        )
+        let activeRepository = MemoryRepository(folder: makeFolder(), documents: [missingDocument])
+        let missingService = ArchiveService(repository: activeRepository)
+        await #expect(throws: ArchiveError.folderUnavailable) {
+            try await missingService.restore(documentId: missingDocument.id)
+        }
+        #expect(try await activeRepository.document(id: missingDocument.id)?.deletedAt != nil)
+
+        let trashedFolder = makeFolder(name: "Trashed", deletedAt: Date(timeIntervalSince1970: 1_700_000_900))
+        let trashedDocument = StoredDocument(
+            id: UUID(), folderId: trashedFolder.id, name: "Scan", createdAt: trashedFolder.createdAt,
+            updatedAt: trashedFolder.createdAt, orderIndex: 0,
+            pages: [DocumentPage(id: UUID(), index: 0, source: testAssetReference())],
+            deletedAt: Date(timeIntervalSince1970: 1_700_001_000)
+        )
+        let trashedRepository = MemoryRepository(folder: trashedFolder, documents: [trashedDocument])
+        let trashedService = ArchiveService(repository: trashedRepository)
+        await #expect(throws: ArchiveError.folderTrashed) {
+            try await trashedService.restore(documentId: trashedDocument.id)
+        }
+        #expect(try await trashedRepository.document(id: trashedDocument.id)?.deletedAt != nil)
+    }
+
+    @Test func folderTombstoneLeavesChildTombstonesUntouched() async throws {
+        let folder = makeFolder()
+        let activeDocument = makeDocument(folder: folder, order: 0)
+        let independentlyTrashed = StoredDocument(
+            id: UUID(), folderId: folder.id, name: "Deleted", createdAt: folder.createdAt, updatedAt: folder.createdAt,
+            orderIndex: 1, pages: [DocumentPage(id: UUID(), index: 0, source: testAssetReference())],
+            deletedAt: Date(timeIntervalSince1970: 1_700_001_000)
+        )
+        let repository = MemoryRepository(folder: folder, documents: [activeDocument, independentlyTrashed])
+        let service = ArchiveService(repository: repository)
+
+        try await service.moveToTrash(folderId: folder.id)
+        #expect(try await repository.document(id: activeDocument.id)?.deletedAt == nil)
+        #expect(try await repository.document(id: independentlyTrashed.id)?.deletedAt != nil)
+
+        try await service.restore(folderId: folder.id)
+        #expect(try await repository.document(id: activeDocument.id)?.deletedAt == nil)
+        #expect(try await repository.document(id: independentlyTrashed.id)?.deletedAt != nil)
+    }
+
+    @Test func retentionDayBoundariesAreDeterministic() {
+        let deletedAt = Date(timeIntervalSince1970: 1_700_001_000)
+        #expect(ArchiveService.retentionDaysRemaining(deletedAt: deletedAt, now: deletedAt) == 30)
+        #expect(ArchiveService.retentionDaysRemaining(deletedAt: deletedAt, now: deletedAt.addingTimeInterval(29 * 86400)) == 1)
+        #expect(ArchiveService.retentionDaysRemaining(deletedAt: deletedAt, now: deletedAt.addingTimeInterval(30 * 86400)) == 0)
+    }
+}
+
+@Suite("Archive document move and storage")
+struct ArchiveDocumentMoveAndStorageTests {
     @Test func moveDocumentPreservesIdentityAndAppendsToDestinationEnd() async throws {
         let source = makeFolder(name: "Source")
         let destination = makeFolder(name: "Destination")
@@ -297,6 +396,53 @@ struct ArchiveServiceTests {
 
         #expect(try await storage.folder(id: folder.id)?.deletedAt == nil)
         #expect(try await storage.document(id: document.id)?.deletedAt != nil)
+    }
+
+    @Test func documentTrashAndRestoreSurviveEncryptedStorageReload() async throws {
+        let root = TestStorageRoot()
+        defer { try? FileManager.default.removeItem(at: root.url) }
+        let serviceName = "archive-services-tests.\(UUID().uuidString)"
+        defer { SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: serviceName] as CFDictionary) }
+        let storage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        let folder = makeFolder()
+        let bytes = Data("page".utf8)
+        let reference = AssetReference(
+            id: UUID(), relativePath: "documents/\(UUID().uuidString.lowercased())/source/page.jpg",
+            sha256Hex: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+            byteSize: bytes.count, mediaType: "image/jpeg"
+        )
+        let tagID = UUID()
+        let presetID = UUID()
+        let document = StoredDocument(
+            id: UUID(), folderId: folder.id, name: "Scan", createdAt: folder.createdAt, updatedAt: folder.createdAt,
+            orderIndex: 0, pages: [DocumentPage(id: UUID(), index: 0, source: reference)],
+            tagIds: [tagID], watermarkPresetId: presetID
+        )
+        try await storage.saveFolder(folder)
+        try await storage.saveAsset(bytes, reference: reference)
+        try await storage.saveDocument(document)
+
+        let archive = ArchiveService(repository: storage)
+        try await archive.moveToTrash(documentId: document.id)
+        try await archive.restore(documentId: document.id)
+
+        let reloadedStorage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        let restored = try #require(try await reloadedStorage.document(id: document.id))
+        #expect(restored.id == document.id)
+        #expect(restored.folderId == folder.id)
+        #expect(restored.pages == document.pages)
+        #expect(restored.tagIds == [tagID])
+        #expect(restored.watermarkPresetId == presetID)
+        #expect(restored.deletedAt == nil)
+        #expect(try await reloadedStorage.containsAsset(reference))
     }
 
     @Test func tagCreateAndAssignSurviveFileStorageReload() async throws {
@@ -415,6 +561,13 @@ private func makeDocument(folder: Folder, order: Int) -> StoredDocument {
     return StoredDocument(
         id: UUID(), folderId: folder.id, name: "Scan", createdAt: folder.createdAt, updatedAt: folder.createdAt,
         orderIndex: order, pages: [DocumentPage(id: UUID(), index: 0, source: reference)]
+    )
+}
+
+private func testAssetReference() -> AssetReference {
+    AssetReference(
+        id: UUID(), relativePath: "documents/\(UUID().uuidString.lowercased())/source/page.jpg",
+        sha256Hex: String(repeating: "c", count: 64), byteSize: 1, mediaType: "image/jpeg"
     )
 }
 

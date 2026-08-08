@@ -156,9 +156,8 @@ public actor ArchiveService {
     public func restore(documentId: UUID) async throws {
         guard let document = try await repository.document(id: documentId) else { throw ArchiveError.documentUnavailable }
         guard document.deletedAt != nil else { throw ArchiveError.documentTrashed }
-        guard let folder = try await repository.folder(id: document.folderId), folder.deletedAt == nil else {
-            throw ArchiveError.folderUnavailable
-        }
+        guard let folder = try await repository.folder(id: document.folderId) else { throw ArchiveError.folderUnavailable }
+        guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
         try await repository.saveDocument(replacing(document, deletedAt: .some(nil), updatedAt: now()))
     }
 
