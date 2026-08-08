@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.19.0...watake-ios-v0.20.0) (2026-08-08)
+
+
+### Features
+
+* **archive:** implement document tags ([d04c83f](https://github.com/STE-Brand-Nova/watake_ios/commit/d04c83f3723d7b49e63a1eadf5301950b895f328))
+* **archive:** implement document tags ([a0b1aa8](https://github.com/STE-Brand-Nova/watake_ios/commit/a0b1aa87a9ab62a8aca0d4d4db7f6c065ac82e9a))
+
 ## [0.19.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.18.0...watake-ios-v0.19.0) (2026-08-08)
 
 
