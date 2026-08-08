@@ -54,6 +54,14 @@ struct LibraryView: View {
         .sheet(isPresented: $isCreatingFolder) { FolderEditor(store: store) }
         .sheet(item: $editingFolder) { folder in FolderEdit(store: store, folder: folder) }
         .sheet(isPresented: $isManagingTags) { TagManager(store: store) }
+        .safeAreaInset(edge: .top, spacing: WatakeSpacing.sm) {
+            if let undo = store.pendingTrashUndo {
+                TrashUndoBanner {
+                    Task { await store.undoTrash() }
+                }
+                .id(undo.id)
+            }
+        }
         .alert("Could not complete change", isPresented: errorBinding) { Button("OK") {} } message: {
             Text(store.errorMessage ?? "Try again.")
         }
@@ -91,6 +99,32 @@ struct LibraryView: View {
                 store.errorMessage = nil
             }
         })
+    }
+}
+
+private struct TrashUndoBanner: View {
+    let undo: () -> Void
+
+    var body: some View {
+        HStack(spacing: WatakeSpacing.md) {
+            Text("Moved to Trash")
+                .watakeType(.bodyEmphasis)
+                .foregroundStyle(WatakeColor.text.primary)
+            Spacer(minLength: 0)
+            Button("Undo", action: undo)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("Undo move to Trash")
+                .accessibilityHint("Restores the most recently deleted item")
+        }
+        .padding(.horizontal, WatakeSpacing.md)
+        .background(WatakeColor.surface.raised)
+        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.md))
+        .overlay {
+            RoundedRectangle(cornerRadius: WatakeRadius.md)
+                .stroke(WatakeColor.border.subtle, lineWidth: 1)
+        }
+        .padding(.horizontal, WatakeSpacing.md)
+        .accessibilityElement(children: .contain)
     }
 }
 
