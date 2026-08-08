@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.18.0...watake-ios-v0.19.0) (2026-08-08)
+
+
+### Features
+
+* **search:** add local document search ([e20393c](https://github.com/STE-Brand-Nova/watake_ios/commit/e20393cbe492d057293877ee6b1221755894607b))
+* **search:** add local document search ([09e83ee](https://github.com/STE-Brand-Nova/watake_ios/commit/09e83ee2ac521fbb5bb3f28ac143ca09e1522cee))
+
 ## [0.18.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.17.0...watake-ios-v0.18.0) (2026-08-07)
 
 
