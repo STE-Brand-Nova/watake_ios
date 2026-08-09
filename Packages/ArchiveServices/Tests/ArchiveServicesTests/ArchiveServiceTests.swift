@@ -486,6 +486,150 @@ struct ArchiveDocumentMoveAndStorageTests {
     }
 }
 
+@Suite("Archive permanent deletion and purge")
+struct ArchivePermanentDeleteTests {
+    @Test func deleteDocumentPermanentlyRejectsActive() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let archive = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.documentNotTrashed) {
+            try await archive.deletePermanently(documentId: document.id)
+        }
+    }
+
+    @Test func deleteFolderPermanentlyRejectsActive() async throws {
+        let folder = makeFolder()
+        let repository = MemoryRepository(folder: folder, documents: [])
+        let archive = ArchiveService(repository: repository)
+
+        await #expect(throws: ArchiveError.folderNotTrashed) {
+            try await archive.deletePermanently(folderId: folder.id)
+        }
+    }
+
+    @Test func deleteDocumentPermanentlyRemovesIt() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let archive = ArchiveService(repository: repository)
+
+        try await archive.moveToTrash(documentId: document.id)
+        try await archive.deletePermanently(documentId: document.id)
+
+        let trashed = try await repository.trashedDocuments()
+        #expect(trashed.isEmpty)
+        #expect(try await repository.document(id: document.id) == nil)
+    }
+
+    @Test func deleteFolderPermanentlyRemovesIt() async throws {
+        let folder = makeFolder()
+        let document = makeDocument(folder: folder, order: 0)
+        let repository = MemoryRepository(folder: folder, documents: [document])
+        let archive = ArchiveService(repository: repository)
+
+        try await archive.moveToTrash(folderId: folder.id)
+        try await archive.deletePermanently(folderId: folder.id)
+
+        let trashed = try await repository.trashedFolders()
+        #expect(trashed.isEmpty)
+        #expect(try await repository.folder(id: folder.id) == nil)
+    }
+
+    @Test func purgeRemovesThirtyDayOldTrashAndRespectsChildRetentionBounds() async throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let expiredTimestamp = timestamp.addingTimeInterval(-31 * 86400)
+        let recentTimestamp = timestamp.addingTimeInterval(-29 * 86400)
+        let exactTimestamp = timestamp.addingTimeInterval(-30 * 86400)
+
+        let folder = makeFolder(deletedAt: expiredTimestamp) // Should expire
+        let doc1 = makeDocument(folder: folder, order: 0)
+        let recentDoc = StoredDocument(
+            id: UUID(),
+            folderId: folder.id,
+            name: "Recent",
+            createdAt: folder.createdAt,
+            updatedAt: folder.createdAt,
+            orderIndex: 1,
+            pages: [],
+            deletedAt: recentTimestamp
+        ) // Recently trashed independently
+
+        let exactFolder = makeFolder(deletedAt: exactTimestamp) // Exact 30 days
+        let exactDoc = StoredDocument(
+            id: UUID(),
+            folderId: exactFolder.id,
+            name: "Exact",
+            createdAt: exactFolder.createdAt,
+            updatedAt: exactFolder.createdAt,
+            orderIndex: 0,
+            pages: [],
+            deletedAt: exactTimestamp
+        )
+
+        let repository = MemoryRepository(folder: folder, additionalFolders: [exactFolder], documents: [doc1, recentDoc, exactDoc])
+        let archive = ArchiveService(repository: repository, now: { timestamp })
+
+        let didPurge = await archive.purgeExpiredTrash()
+        #expect(didPurge == true)
+
+        // Exact 30 days should be deleted
+        #expect(try await repository.folder(id: exactFolder.id) == nil)
+        #expect(try await repository.document(id: exactDoc.id) == nil)
+
+        // Expired folder but contains recent child -> folder is kept
+        #expect(try await repository.folder(id: folder.id) != nil)
+        // doc1 inherited folder's old tombstone -> it is deleted
+        #expect(try await repository.document(id: doc1.id) == nil)
+        // recentDoc has a newer tombstone -> it is kept
+        #expect(try await repository.document(id: recentDoc.id) != nil)
+    }
+
+    @Test func purgeExpiredFolderWithInheritedChildrenUnderFileStorage() async throws {
+        let root = TestStorageRoot()
+        defer { try? FileManager.default.removeItem(at: root.url) }
+        let serviceName = "archive-services-tests.\(UUID().uuidString)"
+        defer { SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: serviceName] as CFDictionary) }
+        let storage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let expiredTimestamp = timestamp.addingTimeInterval(-31 * 86400)
+
+        let folder = makeFolder(deletedAt: expiredTimestamp)
+        let bytes = Data("page".utf8)
+        let reference = AssetReference(
+            id: UUID(), relativePath: "documents/\(UUID().uuidString.lowercased())/source/page.jpg",
+            sha256Hex: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+            byteSize: bytes.count, mediaType: "image/jpeg"
+        )
+        let document = StoredDocument(
+            id: UUID(), folderId: folder.id, name: "Inherited", createdAt: folder.createdAt, updatedAt: folder.createdAt,
+            orderIndex: 0, pages: [DocumentPage(id: UUID(), index: 0, source: reference)], deletedAt: nil
+        )
+
+        try await storage.saveFolder(folder)
+        try await storage.saveAsset(bytes, reference: reference)
+        try await storage.saveDocument(document)
+
+        let archive = ArchiveService(repository: storage, now: { timestamp })
+        let didPurge = await archive.purgeExpiredTrash()
+        #expect(didPurge == true)
+
+        let reloadedStorage = WatakeFileStorage(
+            rootResolver: root,
+            protectionApplier: UntilFirstUnlockFileProtection(),
+            encryptionKeyStore: KeychainEncryptionKeyStore(service: serviceName)
+        )
+        #expect(try await reloadedStorage.folder(id: folder.id) == nil)
+        #expect(try await reloadedStorage.document(id: document.id) == nil)
+        #expect(try await reloadedStorage.containsAsset(reference) == false)
+    }
+}
+
 private actor MemoryRepository: DocumentRepository {
     private var folderValues: [UUID: Folder]
     private var documentValues: [UUID: StoredDocument]
@@ -531,6 +675,33 @@ private actor MemoryRepository: DocumentRepository {
 
     func deleteDocument(id: UUID) async throws {
         documentValues[id] = nil
+    }
+
+    func trashedFolders() async throws -> [Folder] {
+        folderValues.values.filter { $0.deletedAt != nil }
+    }
+
+    func trashedDocuments() async throws -> [StoredDocument] {
+        documentValues.values.filter { $0.deletedAt != nil }
+    }
+
+    func deleteFolder(id: UUID) async throws {
+        folderValues[id] = nil
+        let children = documentValues.values.filter { $0.folderId == id }
+        for child in children {
+            documentValues[child.id] = nil
+        }
+    }
+
+    func hasOtherReferences(to asset: AssetReference, excludingDocumentId: UUID) async throws -> Bool {
+        for doc in documentValues.values where doc.id != excludingDocumentId {
+            for page in doc.pages {
+                if page.source.id == asset.id || page.rectified?.id == asset.id {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     func tags() async throws -> [WatakeDomain.Tag] {

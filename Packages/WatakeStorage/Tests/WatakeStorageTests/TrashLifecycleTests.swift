@@ -120,4 +120,104 @@ struct TrashLifecycleTests {
             try await storage.deleteDocument(id: UUID())
         }
     }
+
+    @Test("permanent delete preserves asset if referenced by another document")
+    func permanentDeletePreservesSharedAsset() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+
+        let folder = makeFolder()
+        try await storage.saveFolder(folder)
+
+        let bytes = Data("shared".utf8)
+        let asset = makeAssetReference(folderId: folder.id, documentId: UUID(), bytes: bytes)
+        try await storage.saveAsset(bytes, reference: asset)
+
+        let document1 = makeDocument(id: UUID(), folderId: folder.id, source: asset, deletedAt: Date())
+        let document2 = makeDocument(id: UUID(), folderId: folder.id, source: asset, deletedAt: nil)
+        try await storage.saveDocument(document1)
+        try await storage.saveDocument(document2)
+
+        try await storage.deleteDocument(id: document1.id)
+        let assetStillExists = try await storage.containsAsset(asset)
+        #expect(assetStillExists)
+    }
+
+    @Test("permanent folder delete throws if not trashed, then removes folder and all children")
+    func permanentFolderDelete() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+
+        let folder = makeFolder()
+        try await storage.saveFolder(folder)
+
+        let bytes = Data("child".utf8)
+        let asset = makeAssetReference(folderId: folder.id, documentId: UUID(), bytes: bytes)
+        try await storage.saveAsset(bytes, reference: asset)
+        let child = makeDocument(folderId: folder.id, source: asset, deletedAt: nil)
+        try await storage.saveDocument(child)
+
+        await #expect(throws: StorageError.folderNotInTrash) {
+            try await storage.deleteFolder(id: folder.id)
+        }
+
+        let trashedFolder = Folder(
+            id: folder.id,
+            name: folder.name,
+            colorHex: folder.colorHex,
+            createdAt: folder.createdAt,
+            deletedAt: Date()
+        )
+        try await storage.saveFolder(trashedFolder)
+
+        try await storage.deleteFolder(id: folder.id)
+
+        let folderExists = try await storage.folder(id: folder.id) != nil
+        #expect(!folderExists)
+        let childExists = try await storage.document(id: child.id) != nil
+        #expect(!childExists)
+        let assetExists = try await storage.containsAsset(asset)
+        #expect(!assetExists)
+    }
+
+    @Test("permanent folder delete removes asset shared by multiple children in same folder")
+    func permanentFolderDeleteRemovesSharedAssetInSameFolder() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+
+        let folder = makeFolder()
+        try await storage.saveFolder(folder)
+
+        let bytes = Data("shared child asset".utf8)
+        let asset = makeAssetReference(folderId: folder.id, documentId: UUID(), bytes: bytes)
+        try await storage.saveAsset(bytes, reference: asset)
+
+        let doc1 = makeDocument(id: UUID(), folderId: folder.id, source: asset, deletedAt: nil)
+        let doc2 = makeDocument(id: UUID(), folderId: folder.id, source: asset, deletedAt: nil)
+        try await storage.saveDocument(doc1)
+        try await storage.saveDocument(doc2)
+
+        let trashedFolder = Folder(
+            id: folder.id,
+            name: folder.name,
+            colorHex: folder.colorHex,
+            createdAt: folder.createdAt,
+            deletedAt: Date()
+        )
+        try await storage.saveFolder(trashedFolder)
+
+        try await storage.deleteFolder(id: folder.id)
+
+        let assetExists = try await storage.containsAsset(asset)
+        #expect(!assetExists)
+    }
 }

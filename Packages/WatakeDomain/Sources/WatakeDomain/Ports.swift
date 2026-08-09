@@ -15,6 +15,15 @@ public protocol DocumentRepository: Sendable {
     /// implementations move metadata only — asset bytes are not folder-scoped.
     func moveDocument(_ document: StoredDocument) async throws
 
+    /// Enumerates all folders with a non-nil `deletedAt`.
+    func trashedFolders() async throws -> [Folder]
+    /// Enumerates all documents with a non-nil `deletedAt`.
+    func trashedDocuments() async throws -> [StoredDocument]
+    /// Permanently removes the folder and all its child documents/assets.
+    func deleteFolder(id: UUID) async throws
+    /// Returns true if any document other than `excludingDocumentId` references this asset.
+    func hasOtherReferences(to asset: AssetReference, excludingDocumentId: UUID) async throws -> Bool
+
     func tags() async throws -> [Tag]
     func saveTag(_ tag: Tag) async throws
 

@@ -6,6 +6,8 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case documentUnavailable
     case folderTrashed
     case documentTrashed
+    case folderNotTrashed
+    case documentNotTrashed
     case tagUnavailable
     case invalidReorder
     case sameFolder
@@ -177,6 +179,105 @@ public actor ArchiveService {
         guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
         guard folder.deletedAt != nil else { throw ArchiveError.folderTrashed }
         try await repository.saveFolder(Folder(id: folder.id, name: folder.name, colorHex: folder.colorHex, createdAt: folder.createdAt))
+    }
+
+    public func deletePermanently(documentId: UUID) async throws {
+        guard let document = try await repository.document(id: documentId) else { throw ArchiveError.documentUnavailable }
+        let folder = try await repository.folder(id: document.folderId)
+        let folderIsTrashed = folder?.deletedAt != nil
+        guard document.deletedAt != nil || folderIsTrashed else { throw ArchiveError.documentNotTrashed }
+        try await repository.deleteDocument(id: documentId)
+    }
+
+    public func deletePermanently(folderId: UUID) async throws {
+        guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
+        guard folder.deletedAt != nil else { throw ArchiveError.folderNotTrashed }
+        try await repository.deleteFolder(id: folderId)
+    }
+
+    public func purgeExpiredTrash() async -> Bool {
+        let currentTime = now()
+        let purgedDocs = await purgeExpiredDocuments(now: currentTime)
+        let purgedFolders = await purgeExpiredFolders(now: currentTime)
+        return purgedDocs || purgedFolders
+    }
+
+    private func purgeExpiredDocuments(now currentTime: Date) async -> Bool {
+        var didPurge = false
+        do {
+            let trashedDocs = try await repository.trashedDocuments()
+            for doc in trashedDocs {
+                if Task.isCancelled {
+                    return didPurge
+                }
+                guard let deletedAt = doc.deletedAt else { continue }
+                if Self.retentionDaysRemaining(deletedAt: deletedAt, now: currentTime) == 0 {
+                    do {
+                        try await repository.deleteDocument(id: doc.id)
+                        didPurge = true
+                    } catch {
+                        // Maintenance failures are non-fatal
+                    }
+                }
+            }
+        } catch {
+            // Maintenance failures are non-fatal
+        }
+        return didPurge
+    }
+
+    private func purgeExpiredFolders(now currentTime: Date) async -> Bool {
+        var didPurge = false
+        do {
+            let trashedFolders = try await repository.trashedFolders()
+            for folder in trashedFolders {
+                if Task.isCancelled {
+                    return didPurge
+                }
+                guard let folderDeletedAt = folder.deletedAt else { continue }
+                if Self.retentionDaysRemaining(deletedAt: folderDeletedAt, now: currentTime) == 0 {
+                    let folderPurged = await purgeFolderIfExpired(folder: folder, folderDeletedAt: folderDeletedAt, now: currentTime)
+                    if folderPurged {
+                        didPurge = true
+                    }
+                }
+            }
+        } catch {
+            // Maintenance failures are non-fatal
+        }
+        return didPurge
+    }
+
+    private func purgeFolderIfExpired(folder: Folder, folderDeletedAt: Date, now currentTime: Date) async -> Bool {
+        guard let children = try? await repository.documents(in: folder.id) else { return false }
+        var didPurge = false
+        var remainingChildrenCount = children.count
+
+        for child in children {
+            if Task.isCancelled {
+                return didPurge
+            }
+            let effectiveTombstone = child.deletedAt ?? folderDeletedAt
+            if Self.retentionDaysRemaining(deletedAt: effectiveTombstone, now: currentTime) == 0 {
+                do {
+                    try await repository.deleteDocument(id: child.id)
+                    didPurge = true
+                    remainingChildrenCount -= 1
+                } catch {
+                    // Maintenance failures are non-fatal
+                }
+            }
+        }
+
+        if remainingChildrenCount == 0 && !Task.isCancelled {
+            do {
+                try await repository.deleteFolder(id: folder.id)
+                didPurge = true
+            } catch {
+                // Maintenance failures are non-fatal
+            }
+        }
+        return didPurge
     }
 
     public static func retentionDaysRemaining(deletedAt: Date, now: Date) -> Int {
