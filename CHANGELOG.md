@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.21.0...watake-ios-v0.22.0) (2026-08-09)
+
+
+### Features
+
+* **trash:** implement permanent deletion and 30-day retention purge ([848320f](https://github.com/STE-Brand-Nova/watake_ios/commit/848320fed11fea7a9719dd6e9eb188a93d381761))
+* **trash:** implement permanent deletion and 30-day retention purge ([03bdfa3](https://github.com/STE-Brand-Nova/watake_ios/commit/03bdfa3e822e41cd1011bb2d802095521f5ad3fc))
+
 ## [0.21.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.20.0...watake-ios-v0.21.0) (2026-08-08)
 
 
