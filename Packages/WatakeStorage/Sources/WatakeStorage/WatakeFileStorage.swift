@@ -344,13 +344,19 @@ extension WatakeFileStorage: DocumentRepository {
         guard let existing = try readDocument(at: metadataURL, owningFolderId: folderId, root: root) else {
             throw StorageError.notFound
         }
-        guard existing.deletedAt != nil else {
+        let folderMetadataURL = StorageLayout.folderMetadataFile(root, folderId)
+        let folderIsTrashed = try (readFolder(at: folderMetadataURL))?.deletedAt != nil
+        guard existing.deletedAt != nil || folderIsTrashed else {
             throw StorageError.documentNotInTrash
         }
         for page in existing.pages {
-            try await removeAsset(page.source)
+            if try await !hasOtherReferences(to: page.source, excludingDocumentId: id) {
+                try await removeAsset(page.source)
+            }
             if let rectified = page.rectified {
-                try await removeAsset(rectified)
+                if try await !hasOtherReferences(to: rectified, excludingDocumentId: id) {
+                    try await removeAsset(rectified)
+                }
             }
         }
         let directory = StorageLayout.documentDirectory(root, folderId, id)
@@ -359,6 +365,100 @@ extension WatakeFileStorage: DocumentRepository {
         } catch {
             throw StorageError.ioFailure
         }
+    }
+
+    public func deleteFolder(id: UUID) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let metadataURL = StorageLayout.folderMetadataFile(root, id)
+        guard let existing = try readFolder(at: metadataURL) else {
+            throw StorageError.notFound
+        }
+        guard existing.deletedAt != nil else {
+            throw StorageError.folderNotInTrash
+        }
+        let childIdsList = try listRecordIDs(in: StorageLayout.documentsRoot(root, id))
+        let childIds = Set(childIdsList)
+        for childId in childIdsList {
+            if let doc = try readDocument(at: StorageLayout.documentMetadataFile(root, id, childId), owningFolderId: id, root: root) {
+                for page in doc.pages {
+                    if try await !hasOtherReferences(to: page.source, excludingDocumentIds: childIds) {
+                        try await removeAsset(page.source)
+                    }
+                    if let rectified = page.rectified {
+                        if try await !hasOtherReferences(to: rectified, excludingDocumentIds: childIds) {
+                            try await removeAsset(rectified)
+                        }
+                    }
+                }
+            }
+        }
+        let directory = StorageLayout.documentsRoot(root, id)
+        do {
+            if fileManager.fileExists(atPath: directory.path) {
+                try fileManager.removeItem(at: directory)
+            }
+            try fileManager.removeItem(at: metadataURL)
+        } catch {
+            throw StorageError.ioFailure
+        }
+    }
+
+    public func trashedFolders() async throws -> [Folder] {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let ids = try listRecordIDs(in: StorageLayout.foldersRoot(root))
+        let folders = try ids.compactMap {
+            try readFolder(at: StorageLayout.folderMetadataFile(root, $0))
+        }
+        return folders.filter { $0.deletedAt != nil }
+    }
+
+    public func trashedDocuments() async throws -> [StoredDocument] {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let folderIds = try listRecordIDs(in: StorageLayout.foldersRoot(root))
+        var trashed: [StoredDocument] = []
+        for folderId in folderIds {
+            let ids = try listRecordIDs(in: StorageLayout.documentsRoot(root, folderId))
+            for id in ids {
+                if let doc = try readDocument(
+                    at: StorageLayout.documentMetadataFile(root, folderId, id),
+                    owningFolderId: folderId,
+                    root: root
+                ), doc.deletedAt != nil {
+                    trashed.append(doc)
+                }
+            }
+        }
+        return trashed
+    }
+
+    public func hasOtherReferences(to asset: AssetReference, excludingDocumentId: UUID) async throws -> Bool {
+        try await hasOtherReferences(to: asset, excludingDocumentIds: [excludingDocumentId])
+    }
+
+    public func hasOtherReferences(to asset: AssetReference, excludingDocumentIds: Set<UUID>) async throws -> Bool {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let folderIds = try listRecordIDs(in: StorageLayout.foldersRoot(root))
+        for folderId in folderIds {
+            let documentIds = try listRecordIDs(in: StorageLayout.documentsRoot(root, folderId))
+            for documentId in documentIds where !excludingDocumentIds.contains(documentId) {
+                if let doc = try readDocument(
+                    at: StorageLayout.documentMetadataFile(root, folderId, documentId),
+                    owningFolderId: folderId,
+                    root: root
+                ) {
+                    for page in doc.pages {
+                        if page.source == asset || page.rectified == asset {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return false
     }
 
     public func tags() async throws -> [Tag] {

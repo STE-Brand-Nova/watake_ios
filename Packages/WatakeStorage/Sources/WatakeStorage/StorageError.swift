@@ -8,6 +8,7 @@ public enum StorageError: Error, Equatable, Sendable {
     case keychainUnavailable
     case notFound
     case documentNotInTrash
+    case folderNotInTrash
     case folderReassignmentUnsupported
     case assetIntegrityMismatch
     case owningFolderUnavailable

@@ -62,6 +62,7 @@ final class LibraryStore {
     private(set) var tags: [Tag] = []
     var errorMessage: String?
     var isLoading = false
+    private var isPurging = false
     private(set) var pendingTrashUndo: PendingTrashUndo?
     private var undoExpiryTask: Task<Void, Never>?
 
@@ -518,5 +519,38 @@ extension LibraryStore {
         undoExpiryTask?.cancel()
         undoExpiryTask = nil
         pendingTrashUndo = nil
+    }
+
+    func deletePermanently(_ document: StoredDocument) async -> Bool {
+        do {
+            try await archive.deletePermanently(documentId: document.id)
+            await load()
+            return true
+        } catch {
+            errorMessage = "Could not delete document. Try again."
+            return false
+        }
+    }
+
+    func deletePermanently(_ folder: Folder) async -> Bool {
+        do {
+            try await archive.deletePermanently(folderId: folder.id)
+            await load()
+            return true
+        } catch {
+            errorMessage = "Could not delete folder. Try again."
+            return false
+        }
+    }
+
+    func purgeExpiredTrash() async {
+        guard !isPurging else { return }
+        isPurging = true
+        defer { isPurging = false }
+
+        let didPurge = await archive.purgeExpiredTrash()
+        if didPurge {
+            await load()
+        }
     }
 }
