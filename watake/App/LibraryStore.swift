@@ -3,6 +3,7 @@ import CaptureServices
 import DocumentProcessing
 import DocumentSearchFeature
 import DocumentViewerFeature
+import ExportFeature
 import Foundation
 import Observation
 import WatakeDomain
@@ -148,6 +149,28 @@ final class LibraryStore {
         storage
     }
 
+    func documents(forIDs ids: Set<UUID>) -> [StoredDocument] {
+        documentsByFolder.values
+            .flatMap(\.self)
+            .filter { ids.contains($0.id) && $0.deletedAt == nil }
+    }
+
+    func makeExportModel(for documentIDs: Set<UUID>) -> ExportFeatureModel {
+        let loader = LibraryExportDocumentLoader { [weak self] ids in
+            guard let self else { return [] }
+            return await MainActor.run {
+                self.documents(forIDs: ids)
+            }
+        }
+        let pdfRenderer = BulkPDFRenderer(assetStore: storage)
+        let model = ExportFeatureModel(
+            documentLoader: loader,
+            exporter: pdfRenderer
+        )
+        model.prepareDraft(documentIDs: documentIDs)
+        return model
+    }
+
     func load() async {
         isLoading = true
         defer { isLoading = false }
@@ -232,60 +255,6 @@ final class LibraryStore {
     /// Returns the created tag on success, or `nil` with `errorMessage` set
     /// (duplicate label / non-palette color / persistence failure) so callers
     /// can preserve the user's input instead of clearing it.
-    func createTag(label: String, colorHex: String) async -> Tag? {
-        do {
-            let tag = try await archive.createTag(label: label, colorHex: colorHex)
-            await load()
-            return tag
-        } catch let error as ArchiveError {
-            errorMessage = tagErrorMessage(error)
-            return nil
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return nil
-        }
-    }
-
-    /// Returns the updated tag on success, or `nil` with `errorMessage` set.
-    func editTag(_ tag: Tag, label: String, colorHex: String) async -> Tag? {
-        do {
-            let updated = try await archive.updateTag(id: tag.id, label: label, colorHex: colorHex)
-            await load()
-            return updated
-        } catch let error as ArchiveError {
-            errorMessage = tagErrorMessage(error)
-            return nil
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return nil
-        }
-    }
-
-    private func tagErrorMessage(_ error: ArchiveError) -> String {
-        switch error {
-        case .duplicateTagLabel:
-            "A tag with that name already exists."
-        case .invalidTagColor:
-            "Choose one of the available tag colors."
-        default:
-            "Could not save changes. Your original pages are unchanged."
-        }
-    }
-
-    /// Returns whether the assignment succeeded so callers (e.g. the tag
-    /// assignment sheet) can keep the sheet open and show the error on
-    /// failure instead of dismissing as if it saved.
-    func assign(tagIds: [UUID], document: StoredDocument) async -> Bool {
-        do {
-            _ = try await archive.assign(tagIds: tagIds, to: document.id)
-            await load()
-            return true
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return false
-        }
-    }
-
     func save(pages: [ImportedPage], grouping: GalleryGrouping, folder: Folder, name: String) async -> Bool {
         do {
             _ = try await importer.save(pages: pages, grouping: grouping, into: folder.id, named: name)
@@ -552,5 +521,75 @@ extension LibraryStore {
         if didPurge {
             await load()
         }
+    }
+}
+
+// MARK: - Tags
+
+extension LibraryStore {
+    func createTag(label: String, colorHex: String) async -> Tag? {
+        do {
+            let tag = try await archive.createTag(label: label, colorHex: colorHex)
+            await load()
+            return tag
+        } catch let error as ArchiveError {
+            errorMessage = tagErrorMessage(error)
+            return nil
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return nil
+        }
+    }
+
+    /// Returns the updated tag on success, or `nil` with `errorMessage` set.
+    func editTag(_ tag: Tag, label: String, colorHex: String) async -> Tag? {
+        do {
+            let updated = try await archive.updateTag(id: tag.id, label: label, colorHex: colorHex)
+            await load()
+            return updated
+        } catch let error as ArchiveError {
+            errorMessage = tagErrorMessage(error)
+            return nil
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return nil
+        }
+    }
+
+    private func tagErrorMessage(_ error: ArchiveError) -> String {
+        switch error {
+        case .duplicateTagLabel:
+            "A tag with that name already exists."
+        case .invalidTagColor:
+            "Choose one of the available tag colors."
+        default:
+            "Could not save changes. Your original pages are unchanged."
+        }
+    }
+
+    /// Returns whether the assignment succeeded so callers (e.g. the tag
+    /// assignment sheet) can keep the sheet open and show the error on
+    /// failure instead of dismissing as if it saved.
+    func assign(tagIds: [UUID], document: StoredDocument) async -> Bool {
+        do {
+            _ = try await archive.assign(tagIds: tagIds, to: document.id)
+            await load()
+            return true
+        } catch {
+            errorMessage = "Could not save changes. Your original pages are unchanged."
+            return false
+        }
+    }
+}
+
+public struct LibraryExportDocumentLoader: ExportDocumentLoading, Sendable {
+    private let loader: @Sendable (Set<UUID>) async throws -> [StoredDocument]
+
+    public init(loader: @escaping @Sendable (Set<UUID>) async throws -> [StoredDocument]) {
+        self.loader = loader
+    }
+
+    public func documents(ids: Set<UUID>) async throws -> [StoredDocument] {
+        try await loader(ids)
     }
 }

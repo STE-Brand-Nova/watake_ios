@@ -1,6 +1,7 @@
 import ArchiveServices
 import DesignSystem
 import DocumentViewerFeature
+import ExportFeature
 import SwiftUI
 import UIKit
 import WatakeDomain
@@ -153,6 +154,9 @@ private struct FolderDocumentsView: View {
     @State private var editingDocument: StoredDocument?
     @State private var isAssigningTags = false
     @State private var movingDocument: StoredDocument?
+    @State private var exportModel: ExportFeatureModel?
+    @State private var isSelecting = false
+    @State private var selectedDocumentIDs: Set<UUID> = []
 
     var body: some View {
         GeometryReader { proxy in
@@ -202,22 +206,12 @@ private struct FolderDocumentsView: View {
                 }
             }
         }
-        .toolbar {
-            if store.layout(for: folder) == .list, store.selectedTagFilterID == nil {
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Picker(
-                    "Document layout",
-                    selection: Binding(get: { store.layout(for: folder) }, set: { store.setLayout($0, for: folder) })
-                ) {
-                    Image(systemName: "list.bullet").tag(DocumentLayout.list)
-                    Image(systemName: "square.grid.2x2").tag(DocumentLayout.grid)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Document layout")
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionActionBar
             }
         }
+        .toolbar { documentBrowserToolbar }
         .sheet(item: $editingDocument) { document in
             if isAssigningTags {
                 TagAssignment(store: store, document: document)
@@ -228,6 +222,71 @@ private struct FolderDocumentsView: View {
         .sheet(item: $movingDocument) { document in
             DocumentMove(store: store, document: document)
         }
+        .sheet(item: $exportModel) { model in
+            ExportReviewView(model: model)
+        }
+    }
+
+    private var selectionActionBar: some View {
+        WatakeStickyActionBar {
+            HStack {
+                Button(selectedDocumentIDs.count == store.filteredDocuments(in: folder).count ? "Deselect All" : "Select All") {
+                    let docs = store.filteredDocuments(in: folder)
+                    if selectedDocumentIDs.count == docs.count {
+                        selectedDocumentIDs.removeAll()
+                    } else {
+                        selectedDocumentIDs = Set(docs.map(\.id))
+                    }
+                }
+
+                Spacer()
+
+                Button("Export Selected (\(selectedDocumentIDs.count))") {
+                    exportModel = store.makeExportModel(for: selectedDocumentIDs)
+                    isSelecting = false
+                }
+                .disabled(selectedDocumentIDs.isEmpty)
+                .buttonStyle(.borderedProminent)
+                .tint(WatakeColor.brand.primary)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var documentBrowserToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(isSelecting ? "Done" : "Select") {
+                isSelecting.toggle()
+                if !isSelecting {
+                    selectedDocumentIDs.removeAll()
+                }
+            }
+            .accessibilityLabel("Toggle multi-select mode")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                let docs = store.filteredDocuments(in: folder)
+                exportModel = store.makeExportModel(for: Set(docs.map(\.id)))
+            } label: {
+                Label("Export PDF", systemImage: "square.and.arrow.up")
+            }
+            .disabled(store.filteredDocuments(in: folder).isEmpty)
+            .accessibilityLabel("Export folder documents as PDF")
+        }
+        if store.layout(for: folder) == .list, store.selectedTagFilterID == nil, !isSelecting {
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Picker(
+                "Document layout",
+                selection: Binding(get: { store.layout(for: folder) }, set: { store.setLayout($0, for: folder) })
+            ) {
+                Image(systemName: "list.bullet").tag(DocumentLayout.list)
+                Image(systemName: "square.grid.2x2").tag(DocumentLayout.grid)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Document layout")
+        }
     }
 
     private var documentList: some View {
@@ -235,7 +294,24 @@ private struct FolderDocumentsView: View {
         return List {
             ForEach(Array(ordered.enumerated()), id: \.element.id) { index, document in
                 HStack(spacing: WatakeSpacing.md) {
-                    Button { store.openDocument(document) } label: {
+                    if isSelecting {
+                        Image(systemName: selectedDocumentIDs.contains(document.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedDocumentIDs.contains(document.id) ? WatakeColor.brand.primary : WatakeColor.text
+                                .secondary)
+                            .font(.title3)
+                    }
+
+                    Button {
+                        if isSelecting {
+                            if selectedDocumentIDs.contains(document.id) {
+                                selectedDocumentIDs.remove(document.id)
+                            } else {
+                                selectedDocumentIDs.insert(document.id)
+                            }
+                        } else {
+                            store.openDocument(document)
+                        }
+                    } label: {
                         HStack(spacing: WatakeSpacing.md) {
                             DocumentThumbnail(store: store, document: document)
                             VStack(alignment: .leading) {
@@ -253,13 +329,15 @@ private struct FolderDocumentsView: View {
                     .buttonStyle(.plain)
                     .hoverEffect(.highlight)
                     .accessibilityLabel(documentAccessibilityLabel(document))
-                    .accessibilityHint("Opens the document")
+                    .accessibilityHint(isSelecting ? "Toggles selection" : "Opens the document")
 
-                    documentActionsMenu(for: document, index: index, ordered: ordered)
+                    if !isSelecting {
+                        documentActionsMenu(for: document, index: index, ordered: ordered)
+                    }
                 }
             }
             .onMove { indexes, destination in
-                guard store.selectedTagFilterID == nil else { return }
+                guard store.selectedTagFilterID == nil, !isSelecting else { return }
                 var reordered = ordered
                 reordered.move(fromOffsets: indexes, toOffset: destination)
                 Task { await store.reorder(folder: folder, documents: reordered) }
@@ -299,10 +377,28 @@ private struct FolderDocumentsView: View {
         WatakeCard {
             VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                 HStack {
+                    if isSelecting {
+                        Image(systemName: selectedDocumentIDs.contains(document.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedDocumentIDs.contains(document.id) ? WatakeColor.brand.primary : WatakeColor.text
+                                .secondary)
+                            .font(.title3)
+                    }
                     Spacer(minLength: 0)
-                    documentActionsMenu(for: document, index: index, ordered: ordered)
+                    if !isSelecting {
+                        documentActionsMenu(for: document, index: index, ordered: ordered)
+                    }
                 }
-                Button { store.openDocument(document) } label: {
+                Button {
+                    if isSelecting {
+                        if selectedDocumentIDs.contains(document.id) {
+                            selectedDocumentIDs.remove(document.id)
+                        } else {
+                            selectedDocumentIDs.insert(document.id)
+                        }
+                    } else {
+                        store.openDocument(document)
+                    }
+                } label: {
                     VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                         DocumentGridThumbnail(store: store, document: document)
                         Text(document.name).watakeType(.bodyEmphasis).foregroundStyle(WatakeColor.text.primary).lineLimit(2)
@@ -317,7 +413,7 @@ private struct FolderDocumentsView: View {
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(documentAccessibilityLabel(document))
-                .accessibilityHint("Opens the document")
+                .accessibilityHint(isSelecting ? "Toggles selection" : "Opens the document")
             }
         }
     }
@@ -334,6 +430,7 @@ private struct FolderDocumentsView: View {
                 editingDocument = document
             }
             Button("Move…") { movingDocument = document }
+            Button("Export PDF…") { exportModel = store.makeExportModel(for: [document.id]) }
             Divider()
             Button("Move Up") { Task { await moveOrder(document: document, index: index, ordered: ordered, offset: -1) } }
                 .disabled(index == 0 || store.selectedTagFilterID != nil)
