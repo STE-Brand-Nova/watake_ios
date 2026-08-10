@@ -269,7 +269,15 @@ private final class RawCameraController: UIViewController, AVCapturePhotoCapture
                 finish(.failure(.unavailable))
                 return
             }
-            DispatchQueue.global(qos: .userInitiated).async { self.session.startRunning() }
+            // AVCaptureSession is not Sendable, but startRunning() is
+            // documented as safe to call off the main thread. Capture it as
+            // nonisolated(unsafe) so the background closure doesn't send
+            // MainActor-isolated `self`, and starting is done off the main
+            // thread as Apple recommends (startRunning blocks).
+            nonisolated(unsafe) let session = self.session
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
         }
     }
 

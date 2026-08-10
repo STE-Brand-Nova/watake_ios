@@ -14,6 +14,7 @@
 		A80400000000000000000003 /* CaptureFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A80400000000000000000002 /* CaptureFeature */; };
 		A80500000000000000000003 /* DocumentProcessing in Frameworks */ = {isa = PBXBuildFile; productRef = A80500000000000000000002 /* DocumentProcessing */; };
 		A80600000000000000000003 /* DocumentSearchFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A80600000000000000000002 /* DocumentSearchFeature */; };
+		A80700000000000000000003 /* ExportFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A80700000000000000000002 /* ExportFeature */; };
 		A80100000000000000000003 /* WatakeDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A80100000000000000000002 /* WatakeDomain */; };
 		A80200000000000000000003 /* WatakeStorage in Frameworks */ = {isa = PBXBuildFile; productRef = A80200000000000000000002 /* WatakeStorage */; };
 /* End PBXBuildFile section */
@@ -77,6 +78,7 @@
 				A80400000000000000000003 /* CaptureFeature in Frameworks */,
 				A80500000000000000000003 /* DocumentProcessing in Frameworks */,
 				A80600000000000000000003 /* DocumentSearchFeature in Frameworks */,
+				A80700000000000000000003 /* ExportFeature in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -251,6 +253,7 @@
 				A80400000000000000000001 /* XCLocalSwiftPackageReference "Packages/CaptureFeature" */,
 				A80500000000000000000001 /* XCLocalSwiftPackageReference "Packages/DocumentProcessing" */,
 				A80600000000000000000001 /* XCLocalSwiftPackageReference "Packages/DocumentSearchFeature" */,
+				A80700000000000000000001 /* XCLocalSwiftPackageReference "Packages/ExportFeature" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 66D93EC1301244A300039664 /* Products */;
@@ -763,6 +766,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DocumentSearchFeature;
 		};
+		A80700000000000000000001 /* XCLocalSwiftPackageReference "Packages/ExportFeature" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ExportFeature;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -808,6 +815,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A80600000000000000000001 /* XCLocalSwiftPackageReference "Packages/DocumentSearchFeature" */;
 			productName = DocumentSearchFeature;
+		};
+		A80700000000000000000002 /* ExportFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A80700000000000000000001 /* XCLocalSwiftPackageReference "Packages/ExportFeature" */;
+			productName = ExportFeature;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

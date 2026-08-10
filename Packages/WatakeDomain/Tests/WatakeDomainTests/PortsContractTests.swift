@@ -75,6 +75,19 @@ private actor InMemoryDocumentRepository: DocumentRepository {
     }
 
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws {}
+
+    func trashedFolders() async throws -> [Folder] {
+        []
+    }
+
+    func trashedDocuments() async throws -> [StoredDocument] {
+        []
+    }
+
+    func deleteFolder(id: UUID) async throws {}
+    func hasOtherReferences(to asset: AssetReference, excludingDocumentId: UUID) async throws -> Bool {
+        false
+    }
 }
 
 private actor InMemoryDocumentAssetStore: DocumentAssetStore {
