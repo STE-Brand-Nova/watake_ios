@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.22.0...watake-ios-v0.23.0) (2026-08-10)
+
+
+### Features
+
+* **export:** bulk PDF export with page review and streaming renderer ([042e97d](https://github.com/STE-Brand-Nova/watake_ios/commit/042e97d67d33aa1e34c4fbfa3c22648d44899f07))
+* **export:** bulk PDF export with page review and streaming renderer ([49abae5](https://github.com/STE-Brand-Nova/watake_ios/commit/49abae52e55f4a48623cfc54397c0d66471b9f43))
+
 ## [0.22.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.21.0...watake-ios-v0.22.0) (2026-08-09)
 
 
