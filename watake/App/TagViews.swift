@@ -399,6 +399,7 @@ struct PalettePicker: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Tag color \(index + 1)")
                 .accessibilityAddTraits(selection == hex ? [.isSelected] : [])
                 .accessibilityHint(selection == hex ? "Selected" : "Selects this tag color")
