@@ -1,26 +1,13 @@
-name: App Store release
+name: TestFlight release
 
+# This workflow is intentionally callable only by Release Please after it
+# creates a tagged GitHub release. Ordinary main pushes cannot invoke it.
 on:
   workflow_call:
     inputs:
       tag_name:
         required: true
         type: string
-      submit_for_review:
-        required: false
-        default: false
-        type: boolean
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: Existing GitHub release tag
-        required: true
-        type: string
-      submit_for_review:
-        description: Submit the uploaded build for App Review
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -30,11 +17,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  testflight:
     if: vars.ENABLE_APPLE_RELEASES == 'true'
     runs-on: macos-26
     timeout-minutes: 60
-    environment: app-store
+    environment: testflight
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,7 +31,7 @@ jobs:
         with:
           ruby-version: "3.3.5"
           bundler-cache: true
-      - name: Build and upload production
+      - name: Build and upload to TestFlight
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -52,8 +39,7 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-          SUBMIT_FOR_REVIEW: ${{ inputs.submit_for_review || false }}
-        run: bundle exec fastlane release version:"${{ inputs.tag_name }}"
+        run: bundle exec fastlane beta
       - name: Attach IPA to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
