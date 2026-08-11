@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.23.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.22.0...watake-ios-v0.23.0) (2026-08-11)
+
+
+### Features
+
+* **export:** bulk PDF export with page review and streaming renderer ([042e97d](https://github.com/STE-Brand-Nova/watake_ios/commit/042e97d67d33aa1e34c4fbfa3c22648d44899f07))
+* **export:** bulk PDF export with page review and streaming renderer ([49abae5](https://github.com/STE-Brand-Nova/watake_ios/commit/49abae52e55f4a48623cfc54397c0d66471b9f43))
+
+
+### Bug Fixes
+
+* **tags:** route palette swatch taps individually ([f56729e](https://github.com/STE-Brand-Nova/watake_ios/commit/f56729e50f2da5d5b75846cc29d7e6bd52653171))
+* **tags:** route palette swatch taps individually ([674b0dd](https://github.com/STE-Brand-Nova/watake_ios/commit/674b0ddb1877780e302697d49602d037c025594f))
+* **testflight:** resolved icon missing ([8d936f4](https://github.com/STE-Brand-Nova/watake_ios/commit/8d936f4364b9b436b6c1c57d46ebc2ec0724fd8d))
+* **testflight:** resolved icon missing ([408f425](https://github.com/STE-Brand-Nova/watake_ios/commit/408f4255b3614e55917d4d731a2115c340147e02))
+* **testflight:** resolved production signing settings ([3ed7f79](https://github.com/STE-Brand-Nova/watake_ios/commit/3ed7f79935ca8abb773f7ab8b17c5c0cbe72dcfe))
+* **testflight:** resolved production signing settings ([97ad3a9](https://github.com/STE-Brand-Nova/watake_ios/commit/97ad3a93496fee41721f6b3d73bec081e856abd9))
+
 ## [0.22.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.21.0...watake-ios-v0.22.0) (2026-08-09)
 
 
