@@ -23,11 +23,10 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  ship:
+  testflight:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true' && vars.ENABLE_APPLE_RELEASES == 'true'
     uses: ./.github/workflows/release.yml
     with:
       tag_name: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
-
