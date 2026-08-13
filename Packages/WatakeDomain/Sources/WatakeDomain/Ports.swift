@@ -189,5 +189,6 @@ public protocol CaptureSaving: Sendable {
 /// Port for retrieving active folders and creating new folders during save.
 public protocol CaptureFolderProviding: Sendable {
     func activeFolders() async -> [Folder]
+    func mostRecentlyUsedFolderID() async -> UUID?
     func createFolder(name: String) async throws -> Folder
 }

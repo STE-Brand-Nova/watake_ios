@@ -14,6 +14,7 @@ struct DestinationRootView: View {
     let destination: AppDestination
     @Bindable var library: LibraryStore
     let onOpenSearchResult: (ArchiveSearchResult) -> Void
+    let onCaptureSaved: (UUID) -> Void
 
     var body: some View {
         Group {
@@ -21,7 +22,7 @@ struct DestinationRootView: View {
             case .library:
                 LibraryView(store: library)
             case .capture:
-                CaptureView(store: library)
+                CaptureView(store: library, onSaved: onCaptureSaved)
             case .trash:
                 TrashView(store: library)
             case .search:
