@@ -11,6 +11,7 @@ public struct CropEditorView: View {
     @State private var topRight: NormalizedPoint
     @State private var bottomRight: NormalizedPoint
     @State private var bottomLeft: NormalizedPoint
+    @State private var edgeDragStartQuad: CropQuadrilateral?
 
     public init(state: CaptureReviewState, rectifier: (any DocumentRectifying)? = nil) {
         self.state = state
@@ -81,6 +82,40 @@ public struct CropEditorView: View {
 
     private var cornerOverlay: some View {
         GeometryReader { proxy in
+            Path { path in
+                path.move(to: position(for: .topLeft, in: proxy.size))
+                path.addLine(to: position(for: .topRight, in: proxy.size))
+                path.addLine(to: position(for: .bottomRight, in: proxy.size))
+                path.addLine(to: position(for: .bottomLeft, in: proxy.size))
+                path.closeSubpath()
+            }
+            .stroke(WatakeColor.border.strong, lineWidth: 2)
+
+            ForEach(CropEdge.allCases, id: \.self) { edge in
+                edgePath(for: edge, in: proxy.size)
+                    .stroke(WatakeColor.border.strong.opacity(0.001), lineWidth: 32)
+                    .contentShape(edgePath(for: edge, in: proxy.size).stroke(lineWidth: 32))
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if edgeDragStartQuad == nil {
+                                    edgeDragStartQuad = currentQuad
+                                }
+                                guard let edgeDragStartQuad else { return }
+                                update(
+                                    edge: edge,
+                                    from: edgeDragStartQuad,
+                                    translation: value.translation,
+                                    in: proxy.size
+                                )
+                            }
+                            .onEnded { _ in
+                                edgeDragStartQuad = nil
+                            }
+                    )
+                    .accessibilityLabel(edge.label)
+            }
+
             ForEach(CropCorner.allCases) { corner in
                 Circle()
                     .fill(WatakeColor.brand.primary)
@@ -163,6 +198,25 @@ public struct CropEditorView: View {
         return CGPoint(x: cornerPoint.x * size.width, y: (1 - cornerPoint.y) * size.height)
     }
 
+    private func edgePath(for edge: CropEdge, in size: CGSize) -> Path {
+        var path = Path()
+        switch edge {
+        case .top:
+            path.move(to: position(for: .topLeft, in: size))
+            path.addLine(to: position(for: .topRight, in: size))
+        case .right:
+            path.move(to: position(for: .topRight, in: size))
+            path.addLine(to: position(for: .bottomRight, in: size))
+        case .bottom:
+            path.move(to: position(for: .bottomRight, in: size))
+            path.addLine(to: position(for: .bottomLeft, in: size))
+        case .left:
+            path.move(to: position(for: .bottomLeft, in: size))
+            path.addLine(to: position(for: .topLeft, in: size))
+        }
+        return path
+    }
+
     private func update(_ corner: CropCorner, with location: CGPoint, in size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         let normalized = NormalizedPoint(
@@ -170,6 +224,22 @@ public struct CropEditorView: View {
             y: min(1, max(0, Double(1 - location.y / size.height)))
         )
         set(normalized, for: corner)
+    }
+
+    private func update(
+        edge: CropEdge,
+        from startQuad: CropQuadrilateral,
+        translation: CGSize,
+        in size: CGSize
+    ) {
+        guard size.width > 0, size.height > 0 else { return }
+        let delta: Double = switch edge {
+        case .top, .bottom:
+            -Double(translation.height / size.height)
+        case .left, .right:
+            Double(translation.width / size.width)
+        }
+        set(CropEdgeAdjustment.moved(startQuad, edge: edge, normalizedDelta: delta))
     }
 
     private func point(for corner: CropCorner) -> NormalizedPoint {
@@ -188,6 +258,13 @@ public struct CropEditorView: View {
         case .bottomRight: bottomRight = point
         case .bottomLeft: bottomLeft = point
         }
+    }
+
+    private func set(_ quad: CropQuadrilateral) {
+        topLeft = quad.topLeft
+        topRight = quad.topRight
+        bottomRight = quad.bottomRight
+        bottomLeft = quad.bottomLeft
     }
 
     private func binding(for corner: CropCorner, axis: CropAxis) -> Binding<Double> {

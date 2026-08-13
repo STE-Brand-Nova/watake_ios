@@ -33,8 +33,10 @@ public struct PageThumbnailView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: WatakeRadius.sm)
                                 .strokeBorder(
-                                    isSelected ? WatakeColor.brand.primary : WatakeColor.border.subtle,
-                                    lineWidth: isSelected ? 3 : 1
+                                    page.detectionUncertain
+                                        ? WatakeColor.status.warning
+                                        : isSelected ? WatakeColor.brand.primary : WatakeColor.border.subtle,
+                                    lineWidth: page.detectionUncertain || isSelected ? 3 : 1
                                 )
                         )
                         .shadow(
@@ -80,7 +82,8 @@ public struct PageThumbnailView: View {
     private var accessibilityText: String {
         let rotationInfo = page.rotationDegrees != 0 ? ", rotated \(page.rotationDegrees) degrees" : ""
         let selectionInfo = isSelected ? ", selected" : ""
-        return "Page \(index + 1)\(selectionInfo)\(rotationInfo)"
+        let cropInfo = page.detectionUncertain ? ", crop needs review" : ""
+        return "Page \(index + 1)\(selectionInfo)\(rotationInfo)\(cropInfo)"
     }
 
     @ViewBuilder

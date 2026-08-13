@@ -28,6 +28,7 @@ public struct SaveDestinationView: View {
     @State private var isLoadingFolders = true
     @State private var folderError: String?
     @State private var isCreatingFolder = false
+    @State private var isAddingFolder = false
     @State private var folderCreationTask: Task<Void, Never>?
     @FocusState private var isNewFolderFieldFocused: Bool
 
@@ -67,29 +68,32 @@ public struct SaveDestinationView: View {
                             Text("Watake saves imported images inside a folder so you can find them later.")
                                 .watakeType(.body)
                                 .foregroundStyle(WatakeColor.text.secondary)
-                            TextField("Folder name", text: $state.newFolderName)
-                                .focused($isNewFolderFieldFocused)
-                                .accessibilityLabel("New folder name")
-                            if let folderError {
-                                Text(folderError)
-                                    .watakeType(.caption)
-                                    .foregroundStyle(WatakeColor.status.danger)
-                                    .accessibilityLabel("Folder name error: \(folderError)")
-                            }
-                            WatakeButton("Create folder", variant: .primary) {
-                                createFolder()
-                            }
-                            .disabled(state.newFolderName.isEmpty || state.isSaving || isCreatingFolder)
-                            .accessibilityLabel("Create folder")
+                            folderCreationControls
                         }
                     } else {
-                        Picker("Target Folder", selection: $state.saveDestinationFolderID) {
-                            Text("Select folder").tag(UUID?.none)
-                            ForEach(activeFolders) { folder in
-                                Text(folder.name).tag(Optional(folder.id))
+                        VStack(alignment: .leading, spacing: WatakeSpacing.md) {
+                            Picker("Target Folder", selection: $state.saveDestinationFolderID) {
+                                Text("Select folder").tag(UUID?.none)
+                                ForEach(activeFolders) { folder in
+                                    Text(folder.name).tag(Optional(folder.id))
+                                }
+                            }
+                            .accessibilityLabel("Target folder selection")
+
+                            if isAddingFolder {
+                                folderCreationControls
+                            } else {
+                                Button {
+                                    folderError = nil
+                                    isAddingFolder = true
+                                    isNewFolderFieldFocused = true
+                                } label: {
+                                    Label("Add folder", systemImage: "folder.badge.plus")
+                                }
+                                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                                .accessibilityLabel("Add folder")
                             }
                         }
-                        .accessibilityLabel("Target folder selection")
                     }
                 }
 
@@ -154,6 +158,38 @@ public struct SaveDestinationView: View {
         }
     }
 
+    @ViewBuilder
+    private var folderCreationControls: some View {
+        TextField("Folder name", text: $state.newFolderName)
+            .focused($isNewFolderFieldFocused)
+            .accessibilityLabel("New folder name")
+        if let folderError {
+            Text(folderError)
+                .watakeType(.caption)
+                .foregroundStyle(WatakeColor.status.danger)
+                .accessibilityLabel("Folder name error: \(folderError)")
+        }
+        HStack(spacing: WatakeSpacing.sm) {
+            WatakeButton("Create folder", variant: .primary) {
+                createFolder()
+            }
+            .disabled(state.newFolderName.isEmpty || state.isSaving || isCreatingFolder)
+            .accessibilityLabel("Create folder")
+
+            if isAddingFolder {
+                Button("Cancel") {
+                    state.newFolderName = ""
+                    folderError = nil
+                    isAddingFolder = false
+                    isNewFolderFieldFocused = false
+                }
+                .frame(minWidth: 44, minHeight: 44)
+                .disabled(isCreatingFolder)
+                .accessibilityLabel("Cancel adding folder")
+            }
+        }
+    }
+
     private func loadFolders() async -> Bool {
         isLoadingFolders = true
         let folders = await folderProvider.activeFolders()
@@ -192,6 +228,7 @@ public struct SaveDestinationView: View {
                 state.newFolderName = ""
                 folderError = nil
                 isNewFolderFieldFocused = false
+                isAddingFolder = false
             } catch let error as DomainValidationError {
                 guard !Task.isCancelled else { return }
                 if case .emptyName = error {
