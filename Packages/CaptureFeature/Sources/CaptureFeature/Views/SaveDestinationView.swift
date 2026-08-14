@@ -71,28 +71,33 @@ public struct SaveDestinationView: View {
                             folderCreationControls
                         }
                     } else {
-                        VStack(alignment: .leading, spacing: WatakeSpacing.md) {
-                            Picker("Target Folder", selection: $state.saveDestinationFolderID) {
-                                Text("Select folder").tag(UUID?.none)
-                                ForEach(activeFolders) { folder in
-                                    Text(folder.name).tag(Optional(folder.id))
-                                }
+                        Picker("Target Folder", selection: $state.saveDestinationFolderID) {
+                            Text("Select folder").tag(UUID?.none)
+                            ForEach(activeFolders) { folder in
+                                Text(folder.name).tag(Optional(folder.id))
                             }
-                            .accessibilityLabel("Target folder selection")
+                        }
+                        .accessibilityLabel("Target folder selection")
+                    }
+                }
 
-                            if isAddingFolder {
-                                folderCreationControls
-                            } else {
-                                Button {
-                                    folderError = nil
-                                    isAddingFolder = true
-                                    isNewFolderFieldFocused = true
-                                } label: {
-                                    Label("Add folder", systemImage: "folder.badge.plus")
-                                }
-                                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                                .accessibilityLabel("Add folder")
+                if !isLoadingFolders && !activeFolders.isEmpty {
+                    Section {
+                        if isAddingFolder {
+                            folderCreationControls
+                        } else {
+                            Button {
+                                folderError = nil
+                                state.newFolderName = ""
+                                isAddingFolder = true
+                                isNewFolderFieldFocused = true
+                            } label: {
+                                Label("Add folder", systemImage: "folder.badge.plus")
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("Add folder")
                         }
                     }
                 }
@@ -112,11 +117,21 @@ public struct SaveDestinationView: View {
             .navigationTitle("Save to folder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button {
                         state.isShowingSaveDestination = false
                         dismiss()
+                    } label: {
+                        Text("Cancel")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(minWidth: 44, minHeight: 44)
                     }
-                    .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WatakeColor.text.primary)
+                    .padding(.horizontal, WatakeSpacing.xs)
+                    .background(WatakeColor.surface.raised)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
                     .disabled(state.isSaving || isCreatingFolder)
                     .accessibilityLabel("Cancel save")
                 }

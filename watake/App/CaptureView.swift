@@ -6,6 +6,7 @@ import DesignSystem
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import WatakeDomain
 
 struct CaptureView: View {
@@ -94,7 +95,7 @@ struct CaptureView: View {
         }
         .fileImporter(
             isPresented: $isImportingFiles,
-            allowedContentTypes: [.jpeg, .png, .heic, .tiff],
+            allowedContentTypes: [.jpeg, .png, .heic, .tiff, .pdf],
             allowsMultipleSelection: true
         ) { result in
             switch result {
