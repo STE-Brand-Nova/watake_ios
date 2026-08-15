@@ -29,9 +29,15 @@ public struct ImportedPage: Sendable, Equatable {
 public struct RectificationResult: Sendable, Equatable {
     public let quadrilateral: CropQuadrilateral
     public let isDetectionConfident: Bool
+    public let confidence: Double
 
-    public init(quadrilateral: CropQuadrilateral, isDetectionConfident: Bool) {
+    public init(
+        quadrilateral: CropQuadrilateral,
+        isDetectionConfident: Bool,
+        confidence: Double = 0
+    ) {
         self.quadrilateral = quadrilateral
         self.isDetectionConfident = isDetectionConfident
+        self.confidence = min(1, max(0, confidence))
     }
 }

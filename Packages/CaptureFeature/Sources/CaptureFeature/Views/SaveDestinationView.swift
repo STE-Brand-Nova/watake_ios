@@ -123,10 +123,11 @@ public struct SaveDestinationView: View {
                     } label: {
                         Text("Cancel")
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .fixedSize(horizontal: true, vertical: false)
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(WatakeColor.text.primary)
                     .padding(.horizontal, WatakeSpacing.xs)
                     .background(WatakeColor.surface.raised)

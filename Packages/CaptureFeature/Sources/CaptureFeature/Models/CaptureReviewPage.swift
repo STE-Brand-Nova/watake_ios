@@ -11,6 +11,7 @@ public struct CaptureReviewPage: Identifiable, Equatable, Sendable {
     public var cropQuadrilateral: CropQuadrilateral?
     public var rotationDegrees: Int // 0, 90, 180, 270
     public var detectionUncertain: Bool
+    public var wasAutoCropAdjusted: Bool
 
     public init(
         id: UUID = UUID(),
@@ -20,7 +21,8 @@ public struct CaptureReviewPage: Identifiable, Equatable, Sendable {
         rectifiedData: Data? = nil,
         cropQuadrilateral: CropQuadrilateral? = nil,
         rotationDegrees: Int = 0,
-        detectionUncertain: Bool = false
+        detectionUncertain: Bool = false,
+        wasAutoCropAdjusted: Bool = false
     ) {
         self.id = id
         self.sourceData = sourceData
@@ -30,6 +32,7 @@ public struct CaptureReviewPage: Identifiable, Equatable, Sendable {
         self.cropQuadrilateral = cropQuadrilateral
         self.rotationDegrees = (rotationDegrees % 360 + 360) % 360
         self.detectionUncertain = detectionUncertain
+        self.wasAutoCropAdjusted = wasAutoCropAdjusted
     }
 
     /// The display image bytes to show in preview/thumbnails.

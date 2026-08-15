@@ -33,7 +33,8 @@
                         bottomRight: NormalizedPoint(x: Double(rectangle.bottomRight.x), y: Double(rectangle.bottomRight.y)),
                         bottomLeft: NormalizedPoint(x: Double(rectangle.bottomLeft.x), y: Double(rectangle.bottomLeft.y))
                     ),
-                    isDetectionConfident: rectangle.confidence >= 0.8
+                    isDetectionConfident: rectangle.confidence >= 0.8,
+                    confidence: Double(rectangle.confidence)
                 )
             } catch {
                 return RectificationResult(quadrilateral: .unit, isDetectionConfident: false)
