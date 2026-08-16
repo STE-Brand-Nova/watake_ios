@@ -112,6 +112,18 @@ public struct RegularCaptureReviewView: View {
                     }
                     .disabled(rectifier == nil || state.isSaving || state.isProcessing)
                     .accessibilityLabel("Automatically adjust \(state.uncertainPageCount) uncertain crop pages")
+
+                    if state.canRetryAggressively {
+                        WatakeButton(aggressiveAdjustTitle, variant: .secondary) {
+                            if let rectifier {
+                                state.autoAdjustUncertainPages(via: rectifier, strategy: .aggressive)
+                            }
+                        }
+                        .disabled(rectifier == nil || state.isSaving || state.isProcessing)
+                        .accessibilityLabel(
+                            "Try aggressive detection on \(state.uncertainPageCount) remaining uncertain pages"
+                        )
+                    }
                 }
 
                 WatakeButton("Delete Page", variant: .secondary) {
@@ -216,6 +228,11 @@ public struct RegularCaptureReviewView: View {
     private var autoAdjustTitle: String {
         let count = state.uncertainPageCount
         return count == 1 ? "Auto-adjust 1 page" : "Auto-adjust \(count) pages"
+    }
+
+    private var aggressiveAdjustTitle: String {
+        let count = state.uncertainPageCount
+        return count == 1 ? "Try Harder on 1 Page" : "Try Harder on \(count) Pages"
     }
 
     private func autoAdjustmentFeedback(_ summary: AutoAdjustmentSummary) -> some View {

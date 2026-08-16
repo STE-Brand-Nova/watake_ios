@@ -40,7 +40,12 @@ struct CaptureView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, WatakeSpacing.md)
-            .disabled(isImportingMedia)
+            .disabled(isImportingMedia || isModeLocked)
+            .accessibilityHint(isModeLocked ? Self.modeLockedMessage : "")
+
+            if isModeLocked {
+                modeLockedNotice
+            }
 
             if reviewState.pages.isEmpty {
                 sourcePicker
@@ -143,6 +148,25 @@ struct CaptureView: View {
         .onDisappear {
             cancelImport()
         }
+    }
+
+    private var isModeLocked: Bool {
+        CaptureModeLockPolicy.isLocked(unsavedPageCount: reviewState.pages.count)
+    }
+
+    private static let modeLockedMessage = CaptureModeLockPolicy.message
+
+    private var modeLockedNotice: some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(Self.modeLockedMessage)
+                .watakeType(.caption)
+        }
+        .foregroundStyle(WatakeColor.status.warning)
+        .padding(.horizontal, WatakeSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Capture mode locked. \(Self.modeLockedMessage)")
     }
 
     private var sourcePicker: some View {
@@ -295,6 +319,17 @@ extension LibraryStore: CaptureFolderProviding, CaptureSaving {
         }
         markFolderUsed(folderID)
         return documents(in: folder)
+    }
+}
+
+/// Switching capture mode while unsaved review pages exist would strand those
+/// pages behind the source picker with no way back to them, so the mode stays
+/// fixed until the user saves or retakes.
+enum CaptureModeLockPolicy {
+    static let message = "Please save the files before switching capture mode."
+
+    static func isLocked(unsavedPageCount: Int) -> Bool {
+        unsavedPageCount > 0
     }
 }
 

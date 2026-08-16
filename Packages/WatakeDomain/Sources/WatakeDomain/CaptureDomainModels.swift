@@ -26,6 +26,18 @@ public struct ImportedPage: Sendable, Equatable {
     }
 }
 
+/// How hard detection should work to find a document boundary.
+///
+/// `balanced` is the import-time default: it only reports rectangles it is
+/// reasonably sure about, so an unclear page stays available for manual
+/// corners. `aggressive` is user-initiated recovery for pages the balanced
+/// pass could not resolve; it relaxes the Vision thresholds and, when Vision
+/// still finds nothing, falls back to a content-bounds estimate.
+public enum DetectionStrategy: Sendable, Equatable, CaseIterable {
+    case balanced
+    case aggressive
+}
+
 public struct RectificationResult: Sendable, Equatable {
     public let quadrilateral: CropQuadrilateral
     public let isDetectionConfident: Bool

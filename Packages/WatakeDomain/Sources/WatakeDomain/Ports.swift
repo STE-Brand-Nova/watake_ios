@@ -178,7 +178,16 @@ public enum UnsupportedWatermarkLayer: Equatable, Sendable {
 /// with perspective correction and non-destructive 90° rotations.
 public protocol DocumentRectifying: Sendable {
     func detect(in jpegData: Data) async -> RectificationResult
+    func detect(in jpegData: Data, strategy: DetectionStrategy) async -> RectificationResult
     func rectify(jpegData: Data, quadrilateral: CropQuadrilateral, rotationDegrees: Int) async -> Data?
+}
+
+extension DocumentRectifying {
+    /// Conformers that only implement the balanced pass still satisfy the port;
+    /// an aggressive request degrades to the balanced result rather than failing.
+    public func detect(in jpegData: Data, strategy: DetectionStrategy) async -> RectificationResult {
+        await detect(in: jpegData)
+    }
 }
 
 /// Port for saving reviewed pages into a target folder.

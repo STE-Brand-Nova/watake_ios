@@ -5,18 +5,24 @@ import WatakeDomain
 public struct AutoAdjustmentSummary: Equatable {
     public let adjustedPageCount: Int
     public let manualReviewPageCount: Int
+    public let strategy: DetectionStrategy
 
-    public init(adjustedPageCount: Int, manualReviewPageCount: Int) {
+    public init(
+        adjustedPageCount: Int,
+        manualReviewPageCount: Int,
+        strategy: DetectionStrategy = .balanced
+    ) {
         self.adjustedPageCount = adjustedPageCount
         self.manualReviewPageCount = manualReviewPageCount
+        self.strategy = strategy
     }
 
     public var message: String {
         switch (adjustedPageCount, manualReviewPageCount) {
         case (0, _):
-            "No safe document boundary found. Adjust the yellow pages manually."
+            noResultMessage
         case (_, 0):
-            "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)) conservatively."
+            "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)) \(strategyNoun)."
         default:
             partialResultMessage
         }
@@ -26,12 +32,28 @@ public struct AutoAdjustmentSummary: Equatable {
         manualReviewPageCount > 0
     }
 
+    /// Whether a stronger pass is still available for the pages this run could
+    /// not resolve.
+    public var canRetryAggressively: Bool {
+        needsManualReview && strategy == .balanced
+    }
+
+    private var strategyNoun: String {
+        strategy == .aggressive ? "aggressively" : "conservatively"
+    }
+
+    private var noResultMessage: String {
+        strategy == .aggressive
+            ? "Aggressive detection still found no boundary. Adjust the yellow pages manually."
+            : "No safe document boundary found. Try aggressive detection or adjust the yellow pages manually."
+    }
+
     private func pageNoun(for count: Int) -> String {
         count == 1 ? "page" : "pages"
     }
 
     private var partialResultMessage: String {
-        "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)); "
+        "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)) \(strategyNoun); "
             + "\(manualReviewPageCount) still need manual corners."
     }
 }
@@ -59,6 +81,7 @@ public final class CaptureReviewState {
     private var autoAdjustmentSessionID: UUID?
     private var pendingAutoAdjustmentPageIDs: Set<UUID> = []
     private var autoAdjustedPageCount = 0
+    private var autoAdjustmentStrategy: DetectionStrategy = .balanced
 
     public init(
         pages: [CaptureReviewPage] = [],
@@ -125,12 +148,25 @@ public final class CaptureReviewState {
         recomputeRectified(for: page.id, via: rectifier)
     }
 
-    /// Re-runs detection for every uncertain import. Only candidates that meet
-    /// the conservative confidence threshold receive an outward safety margin;
-    /// ambiguous pages remain marked for manual review.
-    public func autoAdjustUncertainPages(via rectifier: any DocumentRectifying) {
+    /// Whether the aggressive pass is worth offering: the balanced pass has run
+    /// and left pages the user would otherwise have to correct by hand.
+    public var canRetryAggressively: Bool {
+        guard let autoAdjustmentSummary else { return false }
+        return autoAdjustmentSummary.canRetryAggressively && uncertainPageCount > 0 && !isProcessing
+    }
+
+    /// Re-runs detection for every uncertain import. `balanced` only accepts
+    /// candidates that meet the conservative confidence threshold and gives
+    /// them an outward safety margin; ambiguous pages remain marked for manual
+    /// review. `aggressive` relaxes the Vision thresholds and accepts the
+    /// rectifier's content-bounds estimate, and is only meaningful after
+    /// `balanced` has already failed on those pages.
+    public func autoAdjustUncertainPages(
+        via rectifier: any DocumentRectifying,
+        strategy: DetectionStrategy = .balanced
+    ) {
         guard !isSaving else { return }
-        let pageIDs = pages.lazy.filter(\.detectionUncertain).map(\.id)
+        let pageIDs = Array(pages.lazy.filter(\.detectionUncertain).map(\.id))
         guard !pageIDs.isEmpty else { return }
 
         for pageID in pageIDs {
@@ -139,11 +175,12 @@ public final class CaptureReviewState {
 
         let sessionID = UUID()
         autoAdjustmentSessionID = sessionID
+        autoAdjustmentStrategy = strategy
         pendingAutoAdjustmentPageIDs = Set(pageIDs)
         autoAdjustedPageCount = 0
         autoAdjustmentSummary = nil
         for pageID in pageIDs {
-            autoAdjust(pageID: pageID, sessionID: sessionID, via: rectifier)
+            autoAdjust(pageID: pageID, sessionID: sessionID, strategy: strategy, via: rectifier)
         }
     }
 
@@ -295,15 +332,20 @@ public final class CaptureReviewState {
         inFlightTasks[pageID] = task
     }
 
-    private func autoAdjust(pageID: UUID, sessionID: UUID, via rectifier: any DocumentRectifying) {
+    private func autoAdjust(
+        pageID: UUID,
+        sessionID: UUID,
+        strategy: DetectionStrategy,
+        via rectifier: any DocumentRectifying
+    ) {
         guard let index = pages.firstIndex(where: { $0.id == pageID }) else { return }
         let page = pages[index]
 
         let currentRevision = taskRevisions[pageID] ?? 0
         let task = Task {
-            let detection = await rectifier.detect(in: page.sourceData)
+            let detection = await rectifier.detect(in: page.sourceData, strategy: strategy)
             guard !Task.isCancelled else { return }
-            guard let quadrilateral = ConservativeCropAdjustment.make(from: detection) else {
+            guard let quadrilateral = ConservativeCropAdjustment.make(from: detection, strategy: strategy) else {
                 finishAutoAdjustment(
                     for: pageID,
                     sessionID: sessionID,
@@ -372,7 +414,8 @@ public final class CaptureReviewState {
 
         autoAdjustmentSummary = AutoAdjustmentSummary(
             adjustedPageCount: autoAdjustedPageCount,
-            manualReviewPageCount: uncertainPageCount
+            manualReviewPageCount: uncertainPageCount,
+            strategy: autoAdjustmentStrategy
         )
         autoAdjustmentSessionID = nil
     }
