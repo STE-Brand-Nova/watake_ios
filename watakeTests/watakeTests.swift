@@ -12,6 +12,7 @@ import Testing
 import WatakeDomain
 @testable import watake
 
+@MainActor
 struct CaptureModeLockPolicyTests {
     @Test func modeIsUnlockedWithNoUnsavedPages() {
         #expect(!CaptureModeLockPolicy.isLocked(unsavedPageCount: 0))
