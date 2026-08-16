@@ -20,7 +20,12 @@ struct CompactTabShell: View {
     var body: some View {
         VStack(spacing: 0) {
             NavigationStack {
-                DestinationRootView(destination: router.selection, library: library, onOpenSearchResult: openSearchResult)
+                DestinationRootView(
+                    destination: router.selection,
+                    library: library,
+                    onOpenSearchResult: openSearchResult,
+                    onCaptureSaved: openSavedFolder
+                )
             }
 
             CompactTabBar(router: router)
@@ -29,6 +34,11 @@ struct CompactTabShell: View {
 
     private func openSearchResult(_ result: ArchiveSearchResult) {
         library.openSearchResult(result)
+        router.selection = .library
+    }
+
+    private func openSavedFolder(_ folderID: UUID) {
+        library.openFolder(id: folderID)
         router.selection = .library
     }
 }

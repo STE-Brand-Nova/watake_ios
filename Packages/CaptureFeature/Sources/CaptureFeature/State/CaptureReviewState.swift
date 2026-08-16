@@ -2,6 +2,62 @@ import Foundation
 import Observation
 import WatakeDomain
 
+public struct AutoAdjustmentSummary: Equatable {
+    public let adjustedPageCount: Int
+    public let manualReviewPageCount: Int
+    public let strategy: DetectionStrategy
+
+    public init(
+        adjustedPageCount: Int,
+        manualReviewPageCount: Int,
+        strategy: DetectionStrategy = .balanced
+    ) {
+        self.adjustedPageCount = adjustedPageCount
+        self.manualReviewPageCount = manualReviewPageCount
+        self.strategy = strategy
+    }
+
+    public var message: String {
+        switch (adjustedPageCount, manualReviewPageCount) {
+        case (0, _):
+            noResultMessage
+        case (_, 0):
+            "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)) \(strategyNoun)."
+        default:
+            partialResultMessage
+        }
+    }
+
+    public var needsManualReview: Bool {
+        manualReviewPageCount > 0
+    }
+
+    /// Whether a stronger pass is still available for the pages this run could
+    /// not resolve.
+    public var canRetryAggressively: Bool {
+        needsManualReview && strategy == .balanced
+    }
+
+    private var strategyNoun: String {
+        strategy == .aggressive ? "aggressively" : "conservatively"
+    }
+
+    private var noResultMessage: String {
+        strategy == .aggressive
+            ? "Aggressive detection still found no boundary. Adjust the yellow pages manually."
+            : "No safe document boundary found. Try aggressive detection or adjust the yellow pages manually."
+    }
+
+    private func pageNoun(for count: Int) -> String {
+        count == 1 ? "page" : "pages"
+    }
+
+    private var partialResultMessage: String {
+        "Auto-adjusted \(adjustedPageCount) \(pageNoun(for: adjustedPageCount)) \(strategyNoun); "
+            + "\(manualReviewPageCount) still need manual corners."
+    }
+}
+
 @MainActor
 @Observable
 public final class CaptureReviewState {
@@ -15,12 +71,17 @@ public final class CaptureReviewState {
     public var newFolderName: String
     public var saveError: String?
     public var isSaving: Bool
+    public private(set) var autoAdjustmentSummary: AutoAdjustmentSummary?
 
     /// Task revision counter per page ID to prevent stale async tasks from overwriting state.
     private var taskRevisions: [UUID: Int] = [:]
 
     /// Active in-flight processing tasks per page ID for explicit cancellation.
     private var inFlightTasks: [UUID: Task<Void, Never>] = [:]
+    private var autoAdjustmentSessionID: UUID?
+    private var pendingAutoAdjustmentPageIDs: Set<UUID> = []
+    private var autoAdjustedPageCount = 0
+    private var autoAdjustmentStrategy: DetectionStrategy = .balanced
 
     public init(
         pages: [CaptureReviewPage] = [],
@@ -32,7 +93,8 @@ public final class CaptureReviewState {
         documentName: String = "Document",
         newFolderName: String = "",
         saveError: String? = nil,
-        isSaving: Bool = false
+        isSaving: Bool = false,
+        autoAdjustmentSummary: AutoAdjustmentSummary? = nil
     ) {
         self.pages = pages
         self.selectedIndex = selectedIndex
@@ -44,6 +106,7 @@ public final class CaptureReviewState {
         self.newFolderName = newFolderName
         self.saveError = saveError
         self.isSaving = isSaving
+        self.autoAdjustmentSummary = autoAdjustmentSummary
     }
 
     /// Whether any crop/rectification/rotation processing task is currently running in-flight.
@@ -54,6 +117,10 @@ public final class CaptureReviewState {
     public var selectedPage: CaptureReviewPage? {
         guard pages.indices.contains(selectedIndex) else { return nil }
         return pages[selectedIndex]
+    }
+
+    public var uncertainPageCount: Int {
+        pages.count(where: \.detectionUncertain)
     }
 
     public func selectPage(at index: Int) {
@@ -75,9 +142,46 @@ public final class CaptureReviewState {
         var page = pages[selectedIndex]
         page.cropQuadrilateral = quadrilateral
         page.detectionUncertain = false
+        page.wasAutoCropAdjusted = false
         page.rectifiedData = nil // Reset rectifiedData while async crop task runs
         pages[selectedIndex] = page
         recomputeRectified(for: page.id, via: rectifier)
+    }
+
+    /// Whether the aggressive pass is worth offering: the balanced pass has run
+    /// and left pages the user would otherwise have to correct by hand.
+    public var canRetryAggressively: Bool {
+        guard let autoAdjustmentSummary else { return false }
+        return autoAdjustmentSummary.canRetryAggressively && uncertainPageCount > 0 && !isProcessing
+    }
+
+    /// Re-runs detection for every uncertain import. `balanced` only accepts
+    /// candidates that meet the conservative confidence threshold and gives
+    /// them an outward safety margin; ambiguous pages remain marked for manual
+    /// review. `aggressive` relaxes the Vision thresholds and accepts the
+    /// rectifier's content-bounds estimate, and is only meaningful after
+    /// `balanced` has already failed on those pages.
+    public func autoAdjustUncertainPages(
+        via rectifier: any DocumentRectifying,
+        strategy: DetectionStrategy = .balanced
+    ) {
+        guard !isSaving else { return }
+        let pageIDs = Array(pages.lazy.filter(\.detectionUncertain).map(\.id))
+        guard !pageIDs.isEmpty else { return }
+
+        for pageID in pageIDs {
+            cancelInFlightTask(for: pageID)
+        }
+
+        let sessionID = UUID()
+        autoAdjustmentSessionID = sessionID
+        autoAdjustmentStrategy = strategy
+        pendingAutoAdjustmentPageIDs = Set(pageIDs)
+        autoAdjustedPageCount = 0
+        autoAdjustmentSummary = nil
+        for pageID in pageIDs {
+            autoAdjust(pageID: pageID, sessionID: sessionID, strategy: strategy, via: rectifier)
+        }
     }
 
     public func deleteSelectedPage() {
@@ -226,5 +330,93 @@ public final class CaptureReviewState {
             }
         }
         inFlightTasks[pageID] = task
+    }
+
+    private func autoAdjust(
+        pageID: UUID,
+        sessionID: UUID,
+        strategy: DetectionStrategy,
+        via rectifier: any DocumentRectifying
+    ) {
+        guard let index = pages.firstIndex(where: { $0.id == pageID }) else { return }
+        let page = pages[index]
+
+        let currentRevision = taskRevisions[pageID] ?? 0
+        let task = Task {
+            let detection = await rectifier.detect(in: page.sourceData, strategy: strategy)
+            guard !Task.isCancelled else { return }
+            guard let quadrilateral = ConservativeCropAdjustment.make(from: detection, strategy: strategy) else {
+                finishAutoAdjustment(
+                    for: pageID,
+                    sessionID: sessionID,
+                    revision: currentRevision,
+                    quadrilateral: nil,
+                    rectifiedData: nil
+                )
+                return
+            }
+
+            let rectified = await rectifier.rectify(
+                jpegData: page.sourceData,
+                quadrilateral: quadrilateral,
+                rotationDegrees: page.rotationDegrees
+            )
+            guard !Task.isCancelled else { return }
+            finishAutoAdjustment(
+                for: pageID,
+                sessionID: sessionID,
+                revision: currentRevision,
+                quadrilateral: quadrilateral,
+                rectifiedData: rectified
+            )
+        }
+        inFlightTasks[pageID] = task
+    }
+
+    private func finishAutoAdjustment(
+        for pageID: UUID,
+        sessionID: UUID,
+        revision: Int,
+        quadrilateral: CropQuadrilateral?,
+        rectifiedData: Data?
+    ) {
+        guard taskRevisions[pageID] == revision else { return }
+        let didAdjust = applyAutoAdjustment(
+            for: pageID,
+            quadrilateral: quadrilateral,
+            rectifiedData: rectifiedData
+        )
+        inFlightTasks.removeValue(forKey: pageID)
+        recordAutoAdjustmentResult(for: pageID, sessionID: sessionID, didAdjust: didAdjust)
+    }
+
+    private func applyAutoAdjustment(
+        for pageID: UUID,
+        quadrilateral: CropQuadrilateral?,
+        rectifiedData: Data?
+    ) -> Bool {
+        guard let quadrilateral, let rectifiedData else { return false }
+        guard let targetIndex = pages.firstIndex(where: { $0.id == pageID }) else { return false }
+        pages[targetIndex].cropQuadrilateral = quadrilateral
+        pages[targetIndex].rectifiedData = rectifiedData
+        pages[targetIndex].detectionUncertain = false
+        pages[targetIndex].wasAutoCropAdjusted = true
+        return true
+    }
+
+    private func recordAutoAdjustmentResult(for pageID: UUID, sessionID: UUID, didAdjust: Bool) {
+        guard autoAdjustmentSessionID == sessionID else { return }
+        guard pendingAutoAdjustmentPageIDs.remove(pageID) != nil else { return }
+        if didAdjust {
+            autoAdjustedPageCount += 1
+        }
+        guard pendingAutoAdjustmentPageIDs.isEmpty else { return }
+
+        autoAdjustmentSummary = AutoAdjustmentSummary(
+            adjustedPageCount: autoAdjustedPageCount,
+            manualReviewPageCount: uncertainPageCount,
+            strategy: autoAdjustmentStrategy
+        )
+        autoAdjustmentSessionID = nil
     }
 }

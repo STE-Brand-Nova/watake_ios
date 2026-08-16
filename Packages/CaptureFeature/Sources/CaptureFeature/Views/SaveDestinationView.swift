@@ -3,20 +3,40 @@ import SwiftUI
 import WatakeDomain
 
 public struct SaveDestinationView: View {
+    static func preferredFolderID(
+        activeFolders: [Folder],
+        currentFolderID: UUID?,
+        recentFolderID: UUID?
+    ) -> UUID? {
+        if let currentFolderID, activeFolders.contains(where: { $0.id == currentFolderID }) {
+            return currentFolderID
+        }
+        return activeFolders.first(where: { $0.id == recentFolderID })?.id ?? activeFolders.first?.id
+    }
+
+    static func selectionAfterCreating(folder: Folder, activeFolders: [Folder]) -> UUID? {
+        activeFolders.contains(where: { $0.id == folder.id }) ? folder.id : nil
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Bindable public var state: CaptureReviewState
     public let folderProvider: any CaptureFolderProviding
     public let saver: any CaptureSaving
-    public let onSaved: () -> Void
+    public let onSaved: (UUID) -> Void
 
     @State private var activeFolders: [Folder] = []
     @State private var isLoadingFolders = true
+    @State private var folderError: String?
+    @State private var isCreatingFolder = false
+    @State private var isAddingFolder = false
+    @State private var folderCreationTask: Task<Void, Never>?
+    @FocusState private var isNewFolderFieldFocused: Bool
 
     public init(
         state: CaptureReviewState,
         folderProvider: any CaptureFolderProviding,
         saver: any CaptureSaving,
-        onSaved: @escaping () -> Void
+        onSaved: @escaping (UUID) -> Void
     ) {
         self.state = state
         self.folderProvider = folderProvider
@@ -41,9 +61,15 @@ public struct SaveDestinationView: View {
                                 .foregroundStyle(WatakeColor.text.secondary)
                         }
                     } else if activeFolders.isEmpty {
-                        Text("No folders found. Create one below to save your capture.")
-                            .watakeType(.caption)
-                            .foregroundStyle(WatakeColor.text.secondary)
+                        VStack(alignment: .leading, spacing: WatakeSpacing.md) {
+                            Text("Create a folder first")
+                                .watakeType(.title2)
+                                .foregroundStyle(WatakeColor.text.primary)
+                            Text("Watake saves imported images inside a folder so you can find them later.")
+                                .watakeType(.body)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                            folderCreationControls
+                        }
                     } else {
                         Picker("Target Folder", selection: $state.saveDestinationFolderID) {
                             Text("Select folder").tag(UUID?.none)
@@ -55,15 +81,24 @@ public struct SaveDestinationView: View {
                     }
                 }
 
-                if activeFolders.isEmpty || state.saveDestinationFolderID == nil {
-                    Section("New Folder") {
-                        TextField("New folder name", text: $state.newFolderName)
-                            .accessibilityLabel("New folder name")
-                        WatakeButton("Create Folder", variant: .secondary) {
-                            createFolder()
+                if !isLoadingFolders && !activeFolders.isEmpty {
+                    Section {
+                        if isAddingFolder {
+                            folderCreationControls
+                        } else {
+                            Button {
+                                folderError = nil
+                                state.newFolderName = ""
+                                isAddingFolder = true
+                                isNewFolderFieldFocused = true
+                            } label: {
+                                Label("Add folder", systemImage: "folder.badge.plus")
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("Add folder")
                         }
-                        .disabled(state.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("Create folder button")
                     }
                 }
 
@@ -82,12 +117,23 @@ public struct SaveDestinationView: View {
             .navigationTitle("Save to folder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button {
                         state.isShowingSaveDestination = false
                         dismiss()
+                    } label: {
+                        Text("Cancel")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(minWidth: 44, minHeight: 44)
                     }
-                    .frame(minWidth: 44, minHeight: 44)
-                    .disabled(state.isSaving)
+                    .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(WatakeColor.text.primary)
+                    .padding(.horizontal, WatakeSpacing.xs)
+                    .background(WatakeColor.surface.raised)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                    .disabled(state.isSaving || isCreatingFolder)
                     .accessibilityLabel("Cancel save")
                 }
 
@@ -103,7 +149,14 @@ public struct SaveDestinationView: View {
                 }
             }
             .task {
-                await loadFolders()
+                _ = await loadFolders()
+                if activeFolders.isEmpty {
+                    isNewFolderFieldFocused = true
+                }
+            }
+            .onDisappear {
+                folderCreationTask?.cancel()
+                folderCreationTask = nil
             }
             .alert("Could not save capture", isPresented: Binding(
                 get: { state.saveError != nil },
@@ -121,33 +174,106 @@ public struct SaveDestinationView: View {
         }
     }
 
-    private func loadFolders() async {
-        isLoadingFolders = true
-        let folders = await folderProvider.activeFolders()
-        activeFolders = folders
-        isLoadingFolders = false
-        if state.saveDestinationFolderID == nil {
-            state.saveDestinationFolderID = folders.first?.id
+    @ViewBuilder
+    private var folderCreationControls: some View {
+        TextField("Folder name", text: $state.newFolderName)
+            .focused($isNewFolderFieldFocused)
+            .accessibilityLabel("New folder name")
+        if let folderError {
+            Text(folderError)
+                .watakeType(.caption)
+                .foregroundStyle(WatakeColor.status.danger)
+                .accessibilityLabel("Folder name error: \(folderError)")
+        }
+        HStack(spacing: WatakeSpacing.sm) {
+            WatakeButton("Create folder", variant: .primary) {
+                createFolder()
+            }
+            .disabled(state.newFolderName.isEmpty || state.isSaving || isCreatingFolder)
+            .accessibilityLabel("Create folder")
+
+            if isAddingFolder {
+                Button("Cancel") {
+                    state.newFolderName = ""
+                    folderError = nil
+                    isAddingFolder = false
+                    isNewFolderFieldFocused = false
+                }
+                .frame(minWidth: 44, minHeight: 44)
+                .disabled(isCreatingFolder)
+                .accessibilityLabel("Cancel adding folder")
+            }
         }
     }
 
+    private func loadFolders() async -> Bool {
+        isLoadingFolders = true
+        let folders = await folderProvider.activeFolders()
+        guard !Task.isCancelled else { return false }
+        activeFolders = folders
+        isLoadingFolders = false
+        if folders.isEmpty {
+            state.saveDestinationFolderID = nil
+        } else {
+            let recentID = await folderProvider.mostRecentlyUsedFolderID()
+            guard !Task.isCancelled else { return false }
+            state.saveDestinationFolderID = Self.preferredFolderID(
+                activeFolders: folders,
+                currentFolderID: state.saveDestinationFolderID,
+                recentFolderID: recentID
+            )
+        }
+        return true
+    }
+
     private func createFolder() {
-        let name = state.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        Task {
-            if let created = try? await folderProvider.createFolder(name: name) {
-                await loadFolders()
-                state.saveDestinationFolderID = created.id
+        guard !isCreatingFolder else { return }
+        let name = trimmedFolderName
+        isCreatingFolder = true
+        let task = Task {
+            do {
+                try Task.checkCancellation()
+                let created = try await folderProvider.createFolder(name: name)
+                try Task.checkCancellation()
+                guard await loadFolders() else { return }
+                try Task.checkCancellation()
+                state.saveDestinationFolderID = Self.selectionAfterCreating(
+                    folder: created,
+                    activeFolders: activeFolders
+                )
                 state.newFolderName = ""
+                folderError = nil
+                isNewFolderFieldFocused = false
+                isAddingFolder = false
+            } catch let error as DomainValidationError {
+                guard !Task.isCancelled else { return }
+                if case .emptyName = error {
+                    folderError = "Folder name cannot be empty."
+                } else {
+                    folderError = "Folder could not be created. Try again."
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                folderError = "Folder could not be created. Try again."
+            }
+            if !Task.isCancelled {
+                isCreatingFolder = false
+                folderCreationTask = nil
             }
         }
+        folderCreationTask = task
+    }
+
+    private var trimmedFolderName: String {
+        state.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func save() {
         Task {
             await state.save(via: saver) {
+                guard let folderID = state.saveDestinationFolderID else { return }
                 state.isShowingSaveDestination = false
-                onSaved()
+                onSaved(folderID)
                 dismiss()
             }
         }

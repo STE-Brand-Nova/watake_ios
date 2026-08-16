@@ -10,7 +10,7 @@ public struct CaptureReviewView: View {
     public let saver: any CaptureSaving
     public let rectifier: (any DocumentRectifying)?
     public let onRetake: () -> Void
-    public let onSaved: () -> Void
+    public let onSaved: (UUID) -> Void
     @FocusState private var isReviewSurfaceFocused: Bool
 
     public init(
@@ -19,7 +19,7 @@ public struct CaptureReviewView: View {
         saver: any CaptureSaving,
         rectifier: (any DocumentRectifying)? = nil,
         onRetake: @escaping () -> Void,
-        onSaved: @escaping () -> Void
+        onSaved: @escaping (UUID) -> Void
     ) {
         self.state = state
         self.folderProvider = folderProvider

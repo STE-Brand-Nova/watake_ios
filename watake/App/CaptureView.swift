@@ -1,3 +1,4 @@
+import ArchiveServices
 import AVFoundation
 import CaptureFeature
 import CaptureServices
@@ -14,11 +15,23 @@ struct CaptureView: View {
     @State private var showScanner = false
     @State private var showRawCamera = false
     @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var isImportingFiles = false
     @State private var reviewState = CaptureReviewState()
     @State private var isChoosingGrouping = false
     @State private var captureError: String?
+    @State private var importTask: Task<Void, Never>?
+    @State private var importRevision = 0
+    @State private var isImportingMedia = false
+    @State private var showGroupingAfterImportWarning = false
+
+    let onSaved: (UUID) -> Void
 
     private let rectifier = DocumentRectifier()
+
+    init(store: LibraryStore, onSaved: @escaping (UUID) -> Void = { _ in }) {
+        self.store = store
+        self.onSaved = onSaved
+    }
 
     var body: some View {
         VStack(spacing: WatakeSpacing.xl) {
@@ -27,6 +40,12 @@ struct CaptureView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, WatakeSpacing.md)
+            .disabled(isImportingMedia || isModeLocked)
+            .accessibilityHint(isModeLocked ? Self.modeLockedMessage : "")
+
+            if isModeLocked {
+                modeLockedNotice
+            }
 
             if reviewState.pages.isEmpty {
                 sourcePicker
@@ -37,8 +56,9 @@ struct CaptureView: View {
                     saver: store,
                     rectifier: rectifier,
                     onRetake: retake,
-                    onSaved: {
+                    onSaved: { folderID in
                         reviewState.pages = []
+                        onSaved(folderID)
                     }
                 )
             }
@@ -78,6 +98,26 @@ struct CaptureView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $isImportingFiles,
+            allowedContentTypes: [.jpeg, .png, .heic, .tiff, .pdf],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard urls.count <= CaptureImportSourceAdapter.maximumSelectionCount else {
+                    captureError = "Choose up to 20 images."
+                    return
+                }
+                startImport { revision in
+                    await loadFiles(Array(urls), revision: revision)
+                }
+            case .failure(let error):
+                if (error as NSError).code != NSUserCancelledError {
+                    captureError = "No selected files could be imported."
+                }
+            }
+        }
         .confirmationDialog("Save selected photos", isPresented: $isChoosingGrouping, titleVisibility: .visible) {
             Button("One multi-page document") { reviewState.grouping = .oneDocument }
             Button("Separate documents") { reviewState.grouping = .separateDocuments }
@@ -88,15 +128,45 @@ struct CaptureView: View {
             set: {
                 if !$0 {
                     captureError = nil
+                    if showGroupingAfterImportWarning {
+                        showGroupingAfterImportWarning = false
+                        isChoosingGrouping = true
+                    }
                 }
             }
         )) {
             Button("OK") {}
-        } message: { Text(captureError ?? "Try again.") }
+        } message: {
+            Text(captureError ?? "Try again.")
+        }
         .onChange(of: pickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
-            Task { await loadGallery(newItems) }
+            startImport { revision in
+                await loadGallery(newItems, revision: revision)
+            }
         }
+        .onDisappear {
+            cancelImport()
+        }
+    }
+
+    private var isModeLocked: Bool {
+        CaptureModeLockPolicy.isLocked(unsavedPageCount: reviewState.pages.count)
+    }
+
+    private static let modeLockedMessage = CaptureModeLockPolicy.message
+
+    private var modeLockedNotice: some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(Self.modeLockedMessage)
+                .watakeType(.caption)
+        }
+        .foregroundStyle(WatakeColor.status.warning)
+        .padding(.horizontal, WatakeSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Capture mode locked. \(Self.modeLockedMessage)")
     }
 
     private var sourcePicker: some View {
@@ -112,52 +182,107 @@ struct CaptureView: View {
             switch mode {
             case .raw:
                 WatakeButton("Take photo") { showRawCamera = true }
+                    .disabled(isImportingMedia)
             case .scanner:
                 WatakeButton("Scan document") { showScanner = true }
+                    .disabled(isImportingMedia)
             case .gallery:
-                PhotosPicker(selection: $pickerItems, maxSelectionCount: 20, matching: .images) {
-                    Label("Choose photos", systemImage: "photo.on.rectangle")
-                }.buttonStyle(.watake(.primary))
+                HStack(spacing: WatakeSpacing.md) {
+                    PhotosPicker(
+                        selection: $pickerItems,
+                        maxSelectionCount: CaptureImportSourceAdapter.maximumSelectionCount,
+                        matching: .images
+                    ) {
+                        Label("Photos", systemImage: "photo.on.rectangle")
+                    }
+                    .buttonStyle(.watake(.primary))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel("Import images from Photos")
+                    .disabled(isImportingMedia)
+
+                    Button {
+                        isImportingFiles = true
+                    } label: {
+                        Label("Files", systemImage: "folder")
+                    }
+                    .buttonStyle(.watake(.secondary))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel("Import images from Files")
+                    .disabled(isImportingMedia)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func retake() {
+        cancelImport()
         reviewState.retake()
         pickerItems = []
         mode = .scanner
     }
 
-    private func loadGallery(_ items: [PhotosPickerItem]) async {
-        var result: [CaptureReviewPage] = []
-        for item in items {
-            if Task.isCancelled {
-                return
-            }
-            guard let data = try? await item.loadTransferable(type: Data.self), UIImage(data: data) != nil else { continue }
-            let detection = await rectifier.detect(in: data)
-            let rectified = detection.isDetectionConfident
-                ? await rectifier.rectify(jpegData: data, quadrilateral: detection.quadrilateral, rotationDegrees: 0)
-                : nil
-            let type = item.supportedContentTypes.first
-            result.append(CaptureReviewPage(
-                sourceData: data,
-                sourceMediaType: type?.preferredMIMEType ?? "image/jpeg",
-                sourceFileExtension: type?.preferredFilenameExtension ?? "jpg",
-                rectifiedData: rectified,
-                cropQuadrilateral: detection.quadrilateral,
-                rotationDegrees: 0,
-                detectionUncertain: !detection.isDetectionConfident
-            ))
+    private func startImport(_ operation: @escaping (Int) async -> Void) {
+        importTask?.cancel()
+        importRevision &+= 1
+        let revision = importRevision
+        isImportingMedia = true
+        importTask = Task {
+            await operation(revision)
+            guard !Task.isCancelled, revision == importRevision else { return }
+            isImportingMedia = false
+            importTask = nil
         }
+    }
+
+    private func cancelImport() {
+        importTask?.cancel()
+        importTask = nil
+        importRevision &+= 1
+        isImportingMedia = false
+    }
+
+    private func loadGallery(_ items: [PhotosPickerItem], revision: Int) async {
+        var data: [Data?] = []
+        data.reserveCapacity(items.count)
+        for item in items.prefix(CaptureImportSourceAdapter.maximumSelectionCount) {
+            guard isCurrentImport(revision) else { return }
+            let itemData = try? await item.loadTransferable(type: Data.self)
+            data.append(itemData)
+        }
+        guard isCurrentImport(revision) else { return }
+        let batch = await CaptureImportSourceAdapter.photos(data: data)
+        await loadImportedMedia(batch, revision: revision)
+    }
+
+    private func loadFiles(_ urls: [URL], revision: Int) async {
+        guard isCurrentImport(revision) else { return }
+        let batch = await CaptureImportSourceAdapter.files(urls: urls)
+        guard isCurrentImport(revision) else { return }
+        await loadImportedMedia(batch, revision: revision)
+    }
+
+    private func loadImportedMedia(_ batch: CaptureImportBatch, revision: Int) async {
+        let result = await CaptureImportPipeline(rectifier: rectifier).makePages(from: batch.media)
+        guard isCurrentImport(revision) else { return }
         guard !result.isEmpty else {
-            captureError = "No selected photos could be imported."
+            captureError = "No selected images could be imported."
             return
         }
         reviewState.pages = result
         reviewState.selectedIndex = 0
-        isChoosingGrouping = true
+        if batch.failedCount > 0 {
+            showGroupingAfterImportWarning = true
+            let noun = batch.failedCount == 1 ? "image" : "images"
+            captureError = "\(batch.failedCount) selected \(noun) could not be imported. "
+                + "Review the imported pages and try the missing files again."
+        } else {
+            isChoosingGrouping = true
+        }
+    }
+
+    private func isCurrentImport(_ revision: Int) -> Bool {
+        !Task.isCancelled && revision == importRevision
     }
 }
 
@@ -166,10 +291,16 @@ extension LibraryStore: CaptureFolderProviding, CaptureSaving {
         activeFolders
     }
 
+    func mostRecentlyUsedFolderID() async -> UUID? {
+        mostRecentlyUsedFolder
+    }
+
     func createFolder(name: String) async throws -> Folder {
-        guard let folder = await createFolder(name: name) else {
-            throw DomainValidationError.emptyName(field: "folder")
-        }
+        try Task.checkCancellation()
+        let candidate = Folder(id: UUID(), name: name, colorHex: ArchiveTagPalette.colors[8], createdAt: .now)
+        try candidate.validate()
+        try Task.checkCancellation()
+        guard let folder = await createFolder(name: name) else { throw ImportSaveError.cacheUnavailable }
         return folder
     }
 
@@ -186,7 +317,19 @@ extension LibraryStore: CaptureFolderProviding, CaptureSaving {
         guard success else {
             throw ImportSaveError.cacheUnavailable
         }
+        markFolderUsed(folderID)
         return documents(in: folder)
+    }
+}
+
+/// Switching capture mode while unsaved review pages exist would strand those
+/// pages behind the source picker with no way back to them, so the mode stays
+/// fixed until the user saves or retakes.
+enum CaptureModeLockPolicy {
+    static let message = "Please save the files before switching capture mode."
+
+    static func isLocked(unsavedPageCount: Int) -> Bool {
+        unsavedPageCount > 0
     }
 }
 

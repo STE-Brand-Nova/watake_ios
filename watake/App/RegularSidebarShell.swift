@@ -21,13 +21,23 @@ struct RegularSidebarShell: View {
             .navigationTitle("Watake")
         } detail: {
             NavigationStack {
-                DestinationRootView(destination: router.selection, library: library, onOpenSearchResult: openSearchResult)
+                DestinationRootView(
+                    destination: router.selection,
+                    library: library,
+                    onOpenSearchResult: openSearchResult,
+                    onCaptureSaved: openSavedFolder
+                )
             }
         }
     }
 
     private func openSearchResult(_ result: ArchiveSearchResult) {
         library.openSearchResult(result)
+        router.selection = .library
+    }
+
+    private func openSavedFolder(_ folderID: UUID) {
+        library.openFolder(id: folderID)
         router.selection = .library
     }
 

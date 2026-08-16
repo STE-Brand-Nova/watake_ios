@@ -34,6 +34,10 @@ public struct CompactCaptureReviewView: View {
                 .accessibilityLabel("Warning: Review crop before saving")
             }
 
+            if let summary = state.autoAdjustmentSummary {
+                autoAdjustmentFeedback(summary)
+            }
+
             // Horizontal Page-Thumbnail Strip
             thumbnailStrip
 
@@ -126,6 +130,28 @@ public struct CompactCaptureReviewView: View {
                 .accessibilityLabel("Adjust crop corners")
             }
 
+            if state.uncertainPageCount > 0 {
+                WatakeButton(autoAdjustTitle, variant: .secondary) {
+                    if let rectifier {
+                        state.autoAdjustUncertainPages(via: rectifier)
+                    }
+                }
+                .disabled(rectifier == nil || state.isSaving || state.isProcessing)
+                .accessibilityLabel("Automatically adjust \(state.uncertainPageCount) uncertain crop pages")
+
+                if state.canRetryAggressively {
+                    WatakeButton(aggressiveAdjustTitle, variant: .secondary) {
+                        if let rectifier {
+                            state.autoAdjustUncertainPages(via: rectifier, strategy: .aggressive)
+                        }
+                    }
+                    .disabled(rectifier == nil || state.isSaving || state.isProcessing)
+                    .accessibilityLabel(
+                        "Try aggressive detection on \(state.uncertainPageCount) remaining uncertain pages"
+                    )
+                }
+            }
+
             HStack(spacing: WatakeSpacing.sm) {
                 WatakeButton("Delete page", variant: .secondary) {
                     state.deleteSelectedPage()
@@ -145,5 +171,27 @@ public struct CompactCaptureReviewView: View {
             }
         }
         .padding(.horizontal, WatakeSpacing.md)
+    }
+
+    private var autoAdjustTitle: String {
+        let count = state.uncertainPageCount
+        return count == 1 ? "Auto-adjust 1 page" : "Auto-adjust \(count) pages"
+    }
+
+    private var aggressiveAdjustTitle: String {
+        let count = state.uncertainPageCount
+        return count == 1 ? "Try harder on 1 page" : "Try harder on \(count) pages"
+    }
+
+    private func autoAdjustmentFeedback(_ summary: AutoAdjustmentSummary) -> some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            Image(systemName: summary.needsManualReview ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Text(summary.message)
+                .watakeType(.caption)
+        }
+        .foregroundStyle(summary.needsManualReview ? WatakeColor.status.warning : WatakeColor.brand.primary)
+        .padding(.horizontal, WatakeSpacing.md)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(summary.message)
     }
 }

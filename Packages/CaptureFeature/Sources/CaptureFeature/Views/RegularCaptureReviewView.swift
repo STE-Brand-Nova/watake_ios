@@ -66,6 +66,10 @@ public struct RegularCaptureReviewView: View {
                 .foregroundStyle(WatakeColor.status.warning)
                 .accessibilityLabel("Warning: Review crop before saving")
             }
+
+            if let summary = state.autoAdjustmentSummary {
+                autoAdjustmentFeedback(summary)
+            }
         }
     }
 
@@ -99,6 +103,28 @@ public struct RegularCaptureReviewView: View {
                 }
                 .disabled(state.selectedPage == nil || state.isSaving)
                 .accessibilityLabel("Adjust crop corners")
+
+                if state.uncertainPageCount > 0 {
+                    WatakeButton(autoAdjustTitle, variant: .secondary) {
+                        if let rectifier {
+                            state.autoAdjustUncertainPages(via: rectifier)
+                        }
+                    }
+                    .disabled(rectifier == nil || state.isSaving || state.isProcessing)
+                    .accessibilityLabel("Automatically adjust \(state.uncertainPageCount) uncertain crop pages")
+
+                    if state.canRetryAggressively {
+                        WatakeButton(aggressiveAdjustTitle, variant: .secondary) {
+                            if let rectifier {
+                                state.autoAdjustUncertainPages(via: rectifier, strategy: .aggressive)
+                            }
+                        }
+                        .disabled(rectifier == nil || state.isSaving || state.isProcessing)
+                        .accessibilityLabel(
+                            "Try aggressive detection on \(state.uncertainPageCount) remaining uncertain pages"
+                        )
+                    }
+                }
 
                 WatakeButton("Delete Page", variant: .secondary) {
                     state.deleteSelectedPage()
@@ -170,6 +196,10 @@ public struct RegularCaptureReviewView: View {
                     Text("Uncertain Crop")
                         .watakeType(.caption)
                         .foregroundStyle(WatakeColor.status.warning)
+                } else if page.wasAutoCropAdjusted {
+                    Text("Auto-adjusted safely")
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.brand.primary)
                 }
             }
 
@@ -193,5 +223,26 @@ public struct RegularCaptureReviewView: View {
         .padding(WatakeSpacing.xs)
         .background(isSelected ? WatakeColor.surface.sunken : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.md))
+    }
+
+    private var autoAdjustTitle: String {
+        let count = state.uncertainPageCount
+        return count == 1 ? "Auto-adjust 1 page" : "Auto-adjust \(count) pages"
+    }
+
+    private var aggressiveAdjustTitle: String {
+        let count = state.uncertainPageCount
+        return count == 1 ? "Try Harder on 1 Page" : "Try Harder on \(count) Pages"
+    }
+
+    private func autoAdjustmentFeedback(_ summary: AutoAdjustmentSummary) -> some View {
+        HStack(spacing: WatakeSpacing.xs) {
+            Image(systemName: summary.needsManualReview ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Text(summary.message)
+                .watakeType(.caption)
+        }
+        .foregroundStyle(summary.needsManualReview ? WatakeColor.status.warning : WatakeColor.brand.primary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(summary.message)
     }
 }

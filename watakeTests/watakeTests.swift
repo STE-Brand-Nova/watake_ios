@@ -13,6 +13,22 @@ import WatakeDomain
 @testable import watake
 
 @MainActor
+struct CaptureModeLockPolicyTests {
+    @Test func modeIsUnlockedWithNoUnsavedPages() {
+        #expect(!CaptureModeLockPolicy.isLocked(unsavedPageCount: 0))
+    }
+
+    @Test func modeLocksWhileAnyUnsavedPageExists() {
+        #expect(CaptureModeLockPolicy.isLocked(unsavedPageCount: 1))
+        #expect(CaptureModeLockPolicy.isLocked(unsavedPageCount: 20))
+    }
+
+    @Test func lockMessageAsksTheUserToSave() {
+        #expect(CaptureModeLockPolicy.message == "Please save the files before switching capture mode.")
+    }
+}
+
+@MainActor
 struct AppDestinationTests {
     @Test func exactlyFiveDestinations() {
         #expect(AppDestination.allCases.count == 5)

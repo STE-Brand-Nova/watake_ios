@@ -4,6 +4,15 @@ import Testing
 
 @Suite("Domain validation")
 struct DomainValidationTests {
+    @Test("folder rejects whitespace-only names")
+    func folderRejectsWhitespaceOnlyName() {
+        let folder = Folder(id: UUID(), name: " \n\t ", colorHex: "#3B82F6", createdAt: .now)
+
+        expectValidationError(.emptyName(field: "name")) {
+            try folder.validate()
+        }
+    }
+
     @Test("document requires at least one page")
     func documentRequiresPage() {
         let document = makeDocument(pages: [])

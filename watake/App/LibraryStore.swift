@@ -73,6 +73,7 @@ final class LibraryStore {
     /// `StoredDocument` instance or file URL.
     private(set) var selectedDocumentID: UUID?
     private(set) var selectedFolderID: UUID?
+    private(set) var mostRecentlyUsedFolder: UUID?
     private var viewerModels: [UUID: DocumentViewerModel] = [:]
 
     private var layoutByFolder: [UUID: DocumentLayout] = [:]
@@ -283,11 +284,17 @@ final class LibraryStore {
     func openDocument(_ document: StoredDocument) {
         selectedFolderID = document.folderId
         selectedDocumentID = document.id
+        mostRecentlyUsedFolder = document.folderId
     }
 
     func openFolder(id: UUID) {
         selectedDocumentID = nil
         selectedFolderID = id
+        mostRecentlyUsedFolder = id
+    }
+
+    func markFolderUsed(_ id: UUID) {
+        mostRecentlyUsedFolder = id
     }
 
     func closeFolder() {
