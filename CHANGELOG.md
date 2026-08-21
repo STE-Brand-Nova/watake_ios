@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.24.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.23.0...watake-ios-v0.24.0) (2026-08-21)
+
+
+### Features
+
+* **adjust corner:** start adjust auto logic ([14a27f9](https://github.com/STE-Brand-Nova/watake_ios/commit/14a27f9324bc76009da5d2fa2bc8d92d4d376c85))
+* **capture:** add aggressive crop and mode lock ([e7807ff](https://github.com/STE-Brand-Nova/watake_ios/commit/e7807ff9597001dcf272e87ccdc990d808e2f90f))
+* **capture:** implement import and auto crop ([3e35b93](https://github.com/STE-Brand-Nova/watake_ios/commit/3e35b93c3d74fa440505b55d6f4406343647ca33))
+* **crop:** implement line edge adjustment ([46116c2](https://github.com/STE-Brand-Nova/watake_ios/commit/46116c2a6c162bb6c6e7e3ad1a965f872103d5b0))
+* **import:** implement multi import logic ([4b2e60e](https://github.com/STE-Brand-Nova/watake_ios/commit/4b2e60ee01bb168261f432f4fbb9ab89614f8189))
+* **pdf import:** implement pdf conversion to watake image format ([0c9fa2e](https://github.com/STE-Brand-Nova/watake_ios/commit/0c9fa2e15cb7761f062e563ce42835c51be2fdf5))
+* **watermark:** implement issuance and copies ([e56875b](https://github.com/STE-Brand-Nova/watake_ios/commit/e56875b03fc3e6fef248f48cc3e8a672041f2fc9))
+* **watermark:** implement issuance and copies ([2f4b012](https://github.com/STE-Brand-Nova/watake_ios/commit/2f4b012846d3939525b161ea60f21dba8a19236e))
+
+
+### Bug Fixes
+
+* **ci:** add skills ([47bf3a9](https://github.com/STE-Brand-Nova/watake_ios/commit/47bf3a927d092aad76a3261c8e98899716b20cd2))
+* **ci:** add skills ([0de1116](https://github.com/STE-Brand-Nova/watake_ios/commit/0de11162728f392fb7860c2c9bb94665724b29c7))
+* **ci:** remove app store publish ([91ea5ae](https://github.com/STE-Brand-Nova/watake_ios/commit/91ea5aecb233886ddd41f2237f8bdc12ecc7e529))
+* **ci:** remove app store publish ([392ae8f](https://github.com/STE-Brand-Nova/watake_ios/commit/392ae8f08882b4d398d36ff49987a16b6107fe68))
+
 ## [0.23.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.22.0...watake-ios-v0.23.0) (2026-08-11)
 
 
