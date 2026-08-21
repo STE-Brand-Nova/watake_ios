@@ -14,38 +14,6 @@ import WatakeStorage
 /// mechanism, and introducing one (e.g. SwiftData) just for this would be
 /// disproportionate. Stable across navigating within the folder for the
 /// current app session, reset on relaunch.
-enum DocumentLayout: String, CaseIterable {
-    case list
-    case grid
-}
-
-/// Session-only offer for restoring the latest item sent to Trash. The item is
-/// already durably soft-deleted; this only controls temporary Library UI.
-enum TrashItemID: Equatable, Sendable {
-    case document(UUID)
-    case folder(UUID)
-}
-
-struct PendingTrashUndo: Equatable, Sendable {
-    let id: UUID
-    let item: TrashItemID
-}
-
-/// Degraded thumbnail path used only if `ThumbnailCache` construction fails
-/// (e.g. Caches directory unavailable). Reads the full-resolution asset
-/// uncached rather than making the rail non-functional; `DocumentPageThumbnailProvider`
-/// is used whenever the cache is available.
-private struct RawAssetThumbnailFallback: DocumentPageThumbnailLoading {
-    let assetStore: any DocumentAssetStore
-
-    func thumbnail(for page: DocumentPage) async throws -> Data {
-        if let rectified = page.rectified, let data = try? await assetStore.readAsset(rectified) {
-            return data
-        }
-        return try await assetStore.readAsset(page.source)
-    }
-}
-
 @MainActor
 @Observable
 final class LibraryStore {
@@ -54,6 +22,7 @@ final class LibraryStore {
     private let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
     private let ocrRecognizer: VisionOCRRecognizer
+    private let watermarkIssuanceService: WatermarkIssuanceService
     private let undoDuration: Duration
     private let undoSleeper: @Sendable (Duration) async throws -> Void
     let searchModel: DocumentSearchModel
@@ -61,11 +30,14 @@ final class LibraryStore {
     private(set) var folders: [Folder] = []
     private(set) var documentsByFolder: [UUID: [StoredDocument]] = [:]
     private(set) var tags: [Tag] = []
+    private(set) var watermarkRecipients: [WatermarkRecipient] = []
+    private(set) var watermarkIssuances: [WatermarkIssuance] = []
     var errorMessage: String?
     var isLoading = false
     private var isPurging = false
     private(set) var pendingTrashUndo: PendingTrashUndo?
     private var undoExpiryTask: Task<Void, Never>?
+    private var temporaryExportDirectory: URL?
 
     /// Routing state for the document viewer, kept here (above the compact/
     /// regular/expanded shell split) so opening a document and its selected
@@ -111,11 +83,14 @@ final class LibraryStore {
         importer = ImportedDocumentService(repository: storage, assetStore: storage, serialiser: FolderScanOperationSerialiser())
         thumbnailCache = try? ThumbnailCache()
         ocrRecognizer = VisionOCRRecognizer()
+        watermarkIssuanceService = WatermarkIssuanceService(repository: storage, assetStore: storage)
         self.undoDuration = undoDuration
         self.undoSleeper = undoSleeper
         searchModel = DocumentSearchModel(searcher: LocalDocumentSearchService(repository: storage))
     }
+}
 
+extension LibraryStore {
     var activeFolders: [Folder] {
         folders.filter { $0.deletedAt == nil }
     }
@@ -146,7 +121,48 @@ final class LibraryStore {
         documentsByFolder.values.flatMap(\.self).filter { $0.deletedAt != nil }
     }
 
+    var activeDocuments: [StoredDocument] {
+        documentsByFolder.values.flatMap(\.self)
+            .filter { document in
+                document.deletedAt == nil && folder(for: document.folderId)?.deletedAt == nil
+            }
+    }
+
+    var activeWatermarkRenditions: [WatermarkRendition] {
+        watermarkIssuances.flatMap(\.renditions).filter { $0.deletedAt == nil }
+    }
+
+    var trashedWatermarkRenditions: [WatermarkRendition] {
+        watermarkIssuances.flatMap(\.renditions).filter { $0.deletedAt != nil }
+    }
+
+    func copyCount(for documentID: UUID) -> Int {
+        activeWatermarkRenditions.count { $0.documentId == documentID }
+    }
+
+    func copyCount(in folder: Folder) -> Int {
+        let ids = Set(documents(in: folder).map(\.id))
+        return activeWatermarkRenditions.count { ids.contains($0.documentId) }
+    }
+
+    func relatedCopyCount(for documentID: UUID) -> Int {
+        watermarkIssuances.flatMap(\.renditions).count { $0.documentId == documentID }
+    }
+
+    func relatedCopyCount(in folder: Folder) -> Int {
+        let ids = Set((documentsByFolder[folder.id] ?? []).map(\.id))
+        return watermarkIssuances.flatMap(\.renditions).count { ids.contains($0.documentId) }
+    }
+
+    func issuance(containing renditionID: UUID) -> WatermarkIssuance? {
+        watermarkIssuances.first { $0.renditions.contains(where: { $0.id == renditionID }) }
+    }
+
     var watermarkPresetStore: any WatermarkPresetStore {
+        storage
+    }
+
+    var watermarkAssetStore: any DocumentAssetStore {
         storage
     }
 
@@ -154,6 +170,10 @@ final class LibraryStore {
         documentsByFolder.values
             .flatMap(\.self)
             .filter { ids.contains($0.id) && $0.deletedAt == nil }
+    }
+
+    func documentIncludingTrash(id: UUID) -> StoredDocument? {
+        documentsByFolder.values.flatMap(\.self).first { $0.id == id }
     }
 
     func makeExportModel(for documentIDs: Set<UUID>) -> ExportFeatureModel {
@@ -184,6 +204,8 @@ final class LibraryStore {
             self.folders = folders
             documentsByFolder = pages
             tags = try await storage.tags()
+            watermarkRecipients = try await storage.watermarkRecipients()
+            watermarkIssuances = try await storage.watermarkIssuances()
         } catch {
             errorMessage = "Archive could not load. Try again."
         }
@@ -361,6 +383,170 @@ final class LibraryStore {
         }
     }
 
+    func watermarkPreviewData(for document: StoredDocument) async -> Data? {
+        guard let page = document.pages.min(by: { $0.index < $1.index }) else { return nil }
+        return try? await storage.readAsset(page.rectified ?? page.source)
+    }
+
+    func watermarkRenditionPreviewData(
+        _ rendition: WatermarkRendition,
+        maxPixelSize: Int = 192
+    ) async -> Data? {
+        guard let page = rendition.pages.min(by: { $0.index < $1.index }) else { return nil }
+        do {
+            let data = try await storage.readAsset(page.watermarked)
+            guard let thumbnailCache else { return data }
+            return try await thumbnailCache.thumbnail(
+                for: page.watermarked,
+                data: data,
+                maxPixelSize: maxPixelSize
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    func exportURL(for rendition: WatermarkRendition, recipientName: String) async -> URL? {
+        do {
+            let directory = try beginTemporaryExportSession()
+            return try await renderExport(rendition, recipientName: recipientName, into: directory)
+        } catch {
+            cleanupTemporaryExports()
+            errorMessage = "The watermarked PDF could not be prepared."
+            return nil
+        }
+    }
+
+    func exportURLs(for issuance: WatermarkIssuance) async -> [URL] {
+        do {
+            let directory = try beginTemporaryExportSession()
+            var urls: [URL] = []
+            for rendition in issuance.renditions {
+                try await urls.append(renderExport(
+                    rendition,
+                    recipientName: issuance.recipientNameSnapshot,
+                    into: directory
+                ))
+            }
+            return urls
+        } catch {
+            cleanupTemporaryExports()
+            errorMessage = "The watermarked PDFs could not be prepared."
+            return []
+        }
+    }
+
+    func cleanupTemporaryExports() {
+        guard let temporaryExportDirectory else { return }
+        try? FileManager.default.removeItem(at: temporaryExportDirectory)
+        self.temporaryExportDirectory = nil
+    }
+
+    private func beginTemporaryExportSession() throws -> URL {
+        cleanupTemporaryExports()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        temporaryExportDirectory = directory
+        return directory
+    }
+
+    private func renderExport(
+        _ rendition: WatermarkRendition,
+        recipientName: String,
+        into directory: URL
+    ) async throws -> URL {
+        let filename = ExportFilenameSanitizer.sanitize(
+            "\(rendition.originalNameSnapshot) - \(recipientName) - v\(rendition.version)"
+        )
+        let url = directory.appendingPathComponent(filename).appendingPathExtension("pdf")
+        let job = PDFRenderJob(
+            pages: rendition.pages.sorted(by: { $0.index < $1.index }).map {
+                PDFRenderPage(id: $0.id, assetReference: $0.watermarked)
+            },
+            pageSize: .original,
+            fitMode: .fit,
+            marginPoints: 0,
+            outputURL: url
+        )
+        return try await BulkPDFRenderer(assetStore: storage).renderPDF(job: job, progress: { _ in })
+    }
+
+    private func persistWatermarkRenditionTrash(id: UUID, deletedAt: Date?) async -> Bool {
+        guard let issuance = issuance(containing: id) else { return false }
+        let updatedRenditions = issuance.renditions.map { item in
+            guard item.id == id else { return item }
+            return WatermarkRendition(
+                id: item.id,
+                documentId: item.documentId,
+                issuanceId: item.issuanceId,
+                originalNameSnapshot: item.originalNameSnapshot,
+                version: item.version,
+                config: item.config,
+                pages: item.pages,
+                createdAt: item.createdAt,
+                deletedAt: deletedAt
+            )
+        }
+        let updated = WatermarkIssuance(
+            id: issuance.id,
+            recipientId: issuance.recipientId,
+            recipientNameSnapshot: issuance.recipientNameSnapshot,
+            purpose: issuance.purpose,
+            templateConfig: issuance.templateConfig,
+            renditions: updatedRenditions,
+            createdAt: issuance.createdAt
+        )
+        do {
+            try await storage.saveWatermarkIssuance(updated)
+            await load()
+            return true
+        } catch {
+            errorMessage = deletedAt == nil ? "Could not restore copy." : "Could not move copy to Trash."
+            return false
+        }
+    }
+
+    func recipient(named rawName: String) -> WatermarkRecipient? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return watermarkRecipients.first { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    func createWatermarkedCopies(
+        request: WatermarkCopyRequest,
+        progress: @escaping @Sendable (Int, Int) -> Void
+    ) async -> WatermarkIssuance? {
+        let name = request.recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            errorMessage = "Enter a recipient before creating copies."
+            return nil
+        }
+        let timestamp = Date()
+        let recipient = recipient(named: name) ?? WatermarkRecipient(
+            id: UUID(), displayName: name, createdAt: timestamp, updatedAt: timestamp
+        )
+        do {
+            let issuance = try await watermarkIssuanceService.createCopies(
+                documents: documents(forIDs: request.documentIDs),
+                recipient: recipient,
+                purpose: request.purpose,
+                templateConfig: request.templateConfig,
+                watermarkImageData: request.imageData,
+                progress: progress
+            )
+            await load()
+            return issuance
+        } catch WatermarkIssuanceError.missingPurpose {
+            errorMessage = "Add a purpose or remove the {purpose} field from the watermark."
+        } catch WatermarkIssuanceError.invisibleWatermark {
+            errorMessage = "Add at least one visible watermark layer."
+        } catch is CancellationError {
+            return nil
+        } catch {
+            errorMessage = "Copies could not be created. Your originals and watermark design are unchanged."
+        }
+        return nil
+    }
+
     private func replaceCachedDocument(_ document: StoredDocument) {
         guard var documents = documentsByFolder[document.folderId] else { return }
         guard let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
@@ -403,6 +589,14 @@ extension LibraryStore {
         await restoreManually(.folder(folder.id))
     }
 
+    func trashWatermarkRendition(_ rendition: WatermarkRendition) async -> Bool {
+        await moveToTrash(.rendition(rendition.id))
+    }
+
+    func restoreWatermarkRendition(_ rendition: WatermarkRendition) async -> Bool {
+        await restoreManually(.rendition(rendition.id))
+    }
+
     /// Restores the current offer by immutable ID. An unsuccessful attempt
     /// leaves the offer visible until it expires so no success is implied.
     func undoTrash() async -> Bool {
@@ -422,6 +616,8 @@ extension LibraryStore {
                 try await archive.moveToTrash(documentId: id)
             case .folder(let id):
                 try await archive.moveToTrash(folderId: id)
+            case .rendition(let id):
+                guard await persistWatermarkRenditionTrash(id: id, deletedAt: .now) else { return false }
             }
             await load()
             offerUndo(for: item)
@@ -450,6 +646,8 @@ extension LibraryStore {
                 try await archive.restore(documentId: id)
             case .folder(let id):
                 try await archive.restore(folderId: id)
+            case .rendition(let id):
+                guard await persistWatermarkRenditionTrash(id: id, deletedAt: nil) else { return false }
             }
             await load()
             return true
@@ -498,23 +696,123 @@ extension LibraryStore {
     }
 
     func deletePermanently(_ document: StoredDocument) async -> Bool {
+        let removal: RemovedWatermarkCopies
+        do {
+            // Derived metadata is removed first so a process interruption can
+            // never leave a visible copy pointing at a permanently deleted
+            // original. Assets remain available until the original delete
+            // succeeds, allowing metadata rollback on an archive failure.
+            removal = try await permanentlyRemoveWatermarkCopies(documentIDs: [document.id])
+        } catch {
+            errorMessage = "Could not remove related watermarked copies. The original was not deleted."
+            return false
+        }
         do {
             try await archive.deletePermanently(documentId: document.id)
-            await load()
-            return true
         } catch {
+            try? await restoreWatermarkCopies(removal)
             errorMessage = "Could not delete document. Try again."
+            return false
+        }
+        return await finishPermanentRemoval(removal, deletedItem: "Document")
+    }
+
+    func deletePermanently(_ folder: Folder) async -> Bool {
+        let documentIDs = Set((documentsByFolder[folder.id] ?? []).map(\.id))
+        let removal: RemovedWatermarkCopies
+        do {
+            removal = try await permanentlyRemoveWatermarkCopies(documentIDs: documentIDs)
+        } catch {
+            errorMessage = "Could not remove related watermarked copies. The folder was not deleted."
+            return false
+        }
+        do {
+            try await archive.deletePermanently(folderId: folder.id)
+        } catch {
+            try? await restoreWatermarkCopies(removal)
+            errorMessage = "Could not delete folder. Try again."
+            return false
+        }
+        return await finishPermanentRemoval(removal, deletedItem: "Folder")
+    }
+
+    func deletePermanently(_ rendition: WatermarkRendition) async -> Bool {
+        do {
+            let removal = try await permanentlyRemoveWatermarkCopies(renditionIDs: [rendition.id])
+            return await finishPermanentRemoval(removal, deletedItem: "Copy")
+        } catch {
+            errorMessage = "Could not permanently delete copy. Try again."
             return false
         }
     }
 
-    func deletePermanently(_ folder: Folder) async -> Bool {
+    private func permanentlyRemoveWatermarkCopies(
+        documentIDs: Set<UUID> = [],
+        renditionIDs: Set<UUID> = []
+    ) async throws -> RemovedWatermarkCopies {
+        var originals: [WatermarkIssuance] = []
+        var candidateAssets: [UUID: AssetReference] = [:]
+        for issuance in watermarkIssuances {
+            let removed = issuance.renditions.filter {
+                documentIDs.contains($0.documentId) || renditionIDs.contains($0.id)
+            }
+            guard !removed.isEmpty else { continue }
+            let remaining = issuance.renditions.filter { item in !removed.contains(where: { $0.id == item.id }) }
+            do {
+                originals.append(issuance)
+                if remaining.isEmpty {
+                    try await storage.removeWatermarkIssuance(id: issuance.id)
+                } else {
+                    try await storage.saveWatermarkIssuance(WatermarkIssuance(
+                        id: issuance.id,
+                        recipientId: issuance.recipientId,
+                        recipientNameSnapshot: issuance.recipientNameSnapshot,
+                        purpose: issuance.purpose,
+                        templateConfig: issuance.templateConfig,
+                        renditions: remaining,
+                        createdAt: issuance.createdAt
+                    ))
+                }
+                for page in removed.flatMap(\.pages) {
+                    candidateAssets[page.watermarked.id] = page.watermarked
+                }
+                for logo in removed.compactMap({ $0.config.image?.assetRef }) {
+                    candidateAssets[logo.id] = logo
+                }
+            } catch {
+                try? await restoreWatermarkCopies(RemovedWatermarkCopies(
+                    originalIssuances: originals,
+                    candidateAssets: []
+                ))
+                throw error
+            }
+        }
+        return RemovedWatermarkCopies(
+            originalIssuances: originals,
+            candidateAssets: Array(candidateAssets.values)
+        )
+    }
+
+    private func restoreWatermarkCopies(_ removal: RemovedWatermarkCopies) async throws {
+        for issuance in removal.originalIssuances {
+            try await storage.saveWatermarkIssuance(issuance)
+        }
+    }
+
+    private func finishPermanentRemoval(
+        _ removal: RemovedWatermarkCopies,
+        deletedItem: String
+    ) async -> Bool {
         do {
-            try await archive.deletePermanently(folderId: folder.id)
+            let referencedIDs = try await storage.referencedAssetIDs()
+            for asset in removal.candidateAssets where !referencedIDs.contains(asset.id) {
+                try await storage.removeAsset(asset)
+            }
             await load()
             return true
         } catch {
-            errorMessage = "Could not delete folder. Try again."
+            await load()
+            errorMessage = "\(deletedItem) was deleted, but unused storage could not be reclaimed."
             return false
         }
     }
@@ -525,7 +823,19 @@ extension LibraryStore {
         defer { isPurging = false }
 
         let didPurge = await archive.purgeExpiredTrash()
-        if didPurge {
+        let expiredRenditionIDs = Set(trashedWatermarkRenditions.compactMap { rendition -> UUID? in
+            guard let deletedAt = rendition.deletedAt else { return nil }
+            return ArchiveService.retentionDaysRemaining(deletedAt: deletedAt, now: .now) == 0 ? rendition.id : nil
+        })
+        if !expiredRenditionIDs.isEmpty {
+            do {
+                let removal = try await permanentlyRemoveWatermarkCopies(renditionIDs: expiredRenditionIDs)
+                _ = await finishPermanentRemoval(removal, deletedItem: "Expired copies")
+            } catch {
+                errorMessage = "Expired copies could not be purged."
+            }
+        }
+        if didPurge || !expiredRenditionIDs.isEmpty {
             await load()
         }
     }

@@ -44,6 +44,28 @@ public protocol WatermarkPresetStore: Sendable {
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws
 }
 
+/// Metadata boundary for recipient-based derived copies. Issuances are the
+/// visibility/transaction unit; individual renditions remain addressable for
+/// Trash and sharing.
+public protocol WatermarkCopyRepository: Sendable {
+    func watermarkRecipients() async throws -> [WatermarkRecipient]
+    func saveWatermarkRecipient(_ recipient: WatermarkRecipient) async throws
+    func watermarkIssuances() async throws -> [WatermarkIssuance]
+    func saveWatermarkIssuance(_ issuance: WatermarkIssuance) async throws
+    /// Atomically allocates recipient-relative versions and publishes the
+    /// issuance. The returned value contains the committed version numbers.
+    func commitWatermarkIssuance(
+        _ issuance: WatermarkIssuance,
+        recipient: WatermarkRecipient
+    ) async throws -> WatermarkIssuance
+    func removeWatermarkIssuance(id: UUID) async throws
+}
+
+public enum WatermarkCopyStoreError: Error, Equatable, Sendable {
+    case duplicateRecipientName
+    case unavailable
+}
+
 /// Privacy-safe failures for the narrow watermark preset persistence boundary.
 /// Duplicate names deliberately carry no user-entered text.
 public enum WatermarkPresetStoreError: Error, Equatable, Sendable {
@@ -164,6 +186,10 @@ public enum WatermarkRenderError: Error, Equatable, Sendable {
     case sourceImageUndecodable(pageIndex: Int)
     /// The page's `source` asset decoded to a zero-size image.
     case sourceImageEmpty(pageIndex: Int)
+    /// An enabled watermark image could not be loaded from the asset store.
+    case watermarkImageAssetUnreadable
+    /// The stored watermark image bytes could not be decoded.
+    case watermarkImageUndecodable
     /// Core Graphics failed to open or write the PDF context.
     case pdfGenerationFailed
 }

@@ -4,6 +4,7 @@ import Testing
 import WatakeDomain
 @testable import DocumentProcessing
 
+@Suite(.serialized)
 struct DocumentWatermarkPDFRendererTests {
     @Test func rendersValidOnePagePDF() async throws {
         let fixture = TestDocumentFactory.makeDocument(pageSizes: [(200, 300)])
@@ -169,7 +170,7 @@ struct DocumentWatermarkPDFRendererTests {
         }
     }
 
-    @Test func rejectsEnabledHeadingAsUnsupported() async throws {
+    @Test func rendersEnabledHeading() async throws {
         let fixture = TestDocumentFactory.makeDocument(pageSizes: [(50, 50)])
         let document = fixture.document
         let store = fixture.store
@@ -178,12 +179,11 @@ struct DocumentWatermarkPDFRendererTests {
         let renderer = DocumentWatermarkPDFRenderer(assetStore: store)
         let config = makeConfig(heading: makeTextLayer(text: "Heading"))
 
-        await #expect(throws: WatermarkRenderError.unsupportedWatermarkLayer(.heading)) {
-            try await renderer.renderPDF(for: document, watermark: config)
-        }
+        let pdf = try await renderer.renderPDF(for: document, watermark: config)
+        #expect(try PDFInspection.pageCount(of: pdf) == 1)
     }
 
-    @Test func rejectsEnabledCaptionAsUnsupported() async throws {
+    @Test func rendersEnabledCaption() async throws {
         let fixture = TestDocumentFactory.makeDocument(pageSizes: [(50, 50)])
         let document = fixture.document
         let store = fixture.store
@@ -192,27 +192,23 @@ struct DocumentWatermarkPDFRendererTests {
         let renderer = DocumentWatermarkPDFRenderer(assetStore: store)
         let config = makeConfig(caption: makeTextLayer(text: "Caption"))
 
-        await #expect(throws: WatermarkRenderError.unsupportedWatermarkLayer(.caption)) {
-            try await renderer.renderPDF(for: document, watermark: config)
-        }
+        let pdf = try await renderer.renderPDF(for: document, watermark: config)
+        #expect(try PDFInspection.pageCount(of: pdf) == 1)
     }
 
-    @Test func rejectsEnabledImageLayerAsUnsupported() async throws {
+    @Test func rendersEnabledImageLayer() async throws {
         let fixture = TestDocumentFactory.makeDocument(pageSizes: [(50, 50)])
         let document = fixture.document
         let store = fixture.store
         let data = fixture.pageData
         await TestDocumentFactory.seedAssets(document: document, data: data, into: store)
         let renderer = DocumentWatermarkPDFRenderer(assetStore: store)
+        let logoData = SyntheticImage.makePNGData(width: 20, height: 20, red: 0, green: 0, blue: 0)
+        let logoReference = SyntheticImage.makeAssetReference(pageId: UUID(), data: logoData)
+        await store.seed(logoData, reference: logoReference)
         let imageLayer = WatermarkImageLayer(
             enabled: true,
-            assetRef: AssetReference(
-                id: UUID(),
-                relativePath: "watermark-assets/logo.png",
-                sha256Hex: String(repeating: "a", count: 64),
-                byteSize: 10,
-                mediaType: "image/png"
-            ),
+            assetRef: logoReference,
             scale: 1,
             rotation: 0,
             opacity: 1,
@@ -220,9 +216,8 @@ struct DocumentWatermarkPDFRendererTests {
         )
         let config = makeConfig(image: imageLayer)
 
-        await #expect(throws: WatermarkRenderError.unsupportedWatermarkLayer(.image)) {
-            try await renderer.renderPDF(for: document, watermark: config)
-        }
+        let pdf = try await renderer.renderPDF(for: document, watermark: config)
+        #expect(try PDFInspection.pageCount(of: pdf) == 1)
     }
 
     @Test func disabledHeadingCaptionImageDoNotTriggerUnsupportedError() async throws {

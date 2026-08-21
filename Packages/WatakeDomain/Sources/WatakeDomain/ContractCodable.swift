@@ -391,22 +391,43 @@ extension WatermarkPreset {
     }
 }
 
-extension WatermarkRendition {
+extension WatermarkRecipient {
+    enum CodingKeys: String, CodingKey { case id, displayName, createdAt, updatedAt }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decodeLowercaseUUID(forKey: .id),
+            displayName: container.decode(String.self, forKey: .displayName),
+            createdAt: container.decode(Date.self, forKey: .createdAt),
+            updatedAt: container.decode(Date.self, forKey: .updatedAt)
+        )
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeLowercaseUUID(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
+}
+
+extension WatermarkIssuance {
     enum CodingKeys: String, CodingKey {
-        case id
-        case documentId
-        case config
-        case pages
-        case createdAt
+        case id, recipientId, recipientNameSnapshot, purpose, templateConfig, renditions, createdAt
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
             id: container.decodeLowercaseUUID(forKey: .id),
-            documentId: container.decodeLowercaseUUID(forKey: .documentId),
-            config: container.decode(WatermarkConfig.self, forKey: .config),
-            pages: container.decode([RenditionPage].self, forKey: .pages),
+            recipientId: container.decodeLowercaseUUIDIfPresent(forKey: .recipientId),
+            recipientNameSnapshot: container.decodeIfPresent(String.self, forKey: .recipientNameSnapshot) ?? "Unassigned",
+            purpose: container.decodeIfPresent(String.self, forKey: .purpose),
+            templateConfig: container.decode(WatermarkConfig.self, forKey: .templateConfig),
+            renditions: container.decode([WatermarkRendition].self, forKey: .renditions),
             createdAt: container.decode(Date.self, forKey: .createdAt)
         )
         try validate()
@@ -415,10 +436,55 @@ extension WatermarkRendition {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeLowercaseUUID(id, forKey: .id)
+        try container.encodeLowercaseUUIDIfPresent(recipientId, forKey: .recipientId)
+        try container.encode(recipientNameSnapshot, forKey: .recipientNameSnapshot)
+        try container.encodeIfPresent(purpose, forKey: .purpose)
+        try container.encode(templateConfig, forKey: .templateConfig)
+        try container.encode(renditions, forKey: .renditions)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
+}
+
+extension WatermarkRendition {
+    enum CodingKeys: String, CodingKey {
+        case id
+        case documentId
+        case issuanceId
+        case originalNameSnapshot
+        case version
+        case config
+        case pages
+        case createdAt
+        case deletedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decodeLowercaseUUID(forKey: .id),
+            documentId: container.decodeLowercaseUUID(forKey: .documentId),
+            issuanceId: container.decodeLowercaseUUIDIfPresent(forKey: .issuanceId),
+            originalNameSnapshot: container.decodeIfPresent(String.self, forKey: .originalNameSnapshot) ?? "Unassigned document",
+            version: container.decodeIfPresent(Int.self, forKey: .version) ?? 1,
+            config: container.decode(WatermarkConfig.self, forKey: .config),
+            pages: container.decode([RenditionPage].self, forKey: .pages),
+            createdAt: container.decode(Date.self, forKey: .createdAt),
+            deletedAt: container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        )
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeLowercaseUUID(id, forKey: .id)
         try container.encodeLowercaseUUID(documentId, forKey: .documentId)
+        try container.encodeLowercaseUUIDIfPresent(issuanceId, forKey: .issuanceId)
+        try container.encode(originalNameSnapshot, forKey: .originalNameSnapshot)
+        try container.encode(version, forKey: .version)
         try container.encode(config, forKey: .config)
         try container.encode(pages, forKey: .pages)
         try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 }
 

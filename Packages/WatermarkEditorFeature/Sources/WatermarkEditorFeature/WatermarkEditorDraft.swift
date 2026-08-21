@@ -169,6 +169,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
     public private(set) var body: EditableWatermarkTextLayer
     public private(set) var caption: EditableWatermarkTextLayer
     public private(set) var image: EditableWatermarkImageLayer
+    public private(set) var globalPosition: WatermarkPosition
+    public private(set) var globalRotation: Double
+    public private(set) var globalOpacity: Double
     public private(set) var layoutMode: WatermarkLayoutMode
     public private(set) var tileSpacingX: Double?
     public private(set) var tileSpacingY: Double?
@@ -178,6 +181,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         body: EditableWatermarkTextLayer = .init(),
         caption: EditableWatermarkTextLayer = .init(),
         image: EditableWatermarkImageLayer = .init(),
+        globalPosition: WatermarkPosition = .center,
+        globalRotation: Double = 0,
+        globalOpacity: Double = 1,
         layoutMode: WatermarkLayoutMode = .single,
         tileSpacingX: Double? = nil,
         tileSpacingY: Double? = nil
@@ -186,6 +192,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         self.body = body
         self.caption = caption
         self.image = image
+        self.globalPosition = globalPosition
+        self.globalRotation = min(max(globalRotation.isFinite ? globalRotation : 0, -180), 180)
+        self.globalOpacity = min(max(globalOpacity.isFinite ? globalOpacity : 1, 0), 1)
         self.layoutMode = layoutMode
         self.tileSpacingX = tileSpacingX
         self.tileSpacingY = tileSpacingY
@@ -206,6 +215,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
                 placement: $0.placement
             )
         } ?? .init()
+        globalPosition = config.globalPosition
+        globalRotation = config.globalRotation
+        globalOpacity = config.globalOpacity
         layoutMode = config.layoutMode
         tileSpacingX = config.tileSpacingX
         tileSpacingY = config.tileSpacingY
@@ -216,6 +228,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         case body
         case caption
         case image
+        case globalPosition
+        case globalRotation
+        case globalOpacity
         case layoutMode
         case tileSpacingX
         case tileSpacingY
@@ -227,6 +242,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         body = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .body) ?? .init()
         caption = try container.decodeIfPresent(EditableWatermarkTextLayer.self, forKey: .caption) ?? .init()
         image = try container.decodeIfPresent(EditableWatermarkImageLayer.self, forKey: .image) ?? .init()
+        globalPosition = try container.decodeIfPresent(WatermarkPosition.self, forKey: .globalPosition) ?? .center
+        globalRotation = try container.decodeIfPresent(Double.self, forKey: .globalRotation) ?? 0
+        globalOpacity = try container.decodeIfPresent(Double.self, forKey: .globalOpacity) ?? 1
         layoutMode = try container.decodeIfPresent(WatermarkLayoutMode.self, forKey: .layoutMode) ?? .single
         tileSpacingX = try container.decodeIfPresent(Double.self, forKey: .tileSpacingX)
         tileSpacingY = try container.decodeIfPresent(Double.self, forKey: .tileSpacingY)
@@ -283,6 +301,18 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
         update(&image)
     }
 
+    public mutating func setGlobalPosition(_ value: WatermarkPosition) {
+        globalPosition = value
+    }
+
+    public mutating func setGlobalRotation(_ value: Double) {
+        globalRotation = min(max(value.isFinite ? value : 0, -180), 180)
+    }
+
+    public mutating func setGlobalOpacity(_ value: Double) {
+        globalOpacity = min(max(value.isFinite ? value : 1, 0), 1)
+    }
+
     /// Returns the contract model without applying, exporting, or persisting
     /// it. Defaults preserve the version-1 shared schema and neutral global
     /// values for the deferred global-controls slice.
@@ -293,9 +323,9 @@ public struct WatermarkEditorDraft: Codable, Equatable, Sendable {
             body: body.watermarkTextLayer(),
             caption: caption.watermarkTextLayer(),
             image: image.watermarkImageLayer(),
-            globalPosition: .center,
-            globalRotation: 0,
-            globalOpacity: 1,
+            globalPosition: globalPosition,
+            globalRotation: globalRotation,
+            globalOpacity: globalOpacity,
             layoutMode: layoutMode,
             tileSpacingX: tileSpacingX,
             tileSpacingY: tileSpacingY

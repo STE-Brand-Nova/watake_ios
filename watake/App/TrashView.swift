@@ -9,6 +9,7 @@ struct TrashView: View {
     @State private var retentionNow = Date.now
     @State private var documentToDelete: StoredDocument?
     @State private var folderToDelete: Folder?
+    @State private var renditionToDelete: WatermarkRendition?
 
     var body: some View {
         List {
@@ -38,9 +39,23 @@ struct TrashView: View {
                     }
                 }
             }
+            if !store.trashedWatermarkRenditions.isEmpty {
+                Section("Watermarked Copies") {
+                    ForEach(store.trashedWatermarkRenditions) { rendition in
+                        let recipient = store.issuance(containing: rendition.id)?.recipientNameSnapshot ?? "Unassigned"
+                        trashRow(
+                            name: rendition.originalNameSnapshot,
+                            subtitle: "Recipient: \(recipient) · Version \(rendition.version)",
+                            deletedAt: rendition.deletedAt,
+                            restore: { restore { await store.restoreWatermarkRendition(rendition) } },
+                            deleteAction: { renditionToDelete = rendition }
+                        )
+                    }
+                }
+            }
         }
         .overlay {
-            if store.trashedFolders.isEmpty && store.trashedDocuments.isEmpty {
+            if store.trashedFolders.isEmpty && store.trashedDocuments.isEmpty && store.trashedWatermarkRenditions.isEmpty {
                 WatakeEmptyState(
                     systemImage: "trash",
                     title: "Trash is empty.",
@@ -74,7 +89,7 @@ struct TrashView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the document's local files and cannot be undone.")
+            Text(documentDeletionMessage)
         }
         .confirmationDialog(
             "Delete Folder Permanently?",
@@ -95,7 +110,28 @@ struct TrashView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently removes the folder and its documents.")
+            Text(folderDeletionMessage)
+        }
+        .confirmationDialog(
+            "Delete Watermarked Copy Permanently?",
+            isPresented: Binding(
+                get: { renditionToDelete != nil },
+                set: {
+                    if !$0 {
+                        renditionToDelete = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Permanently", role: .destructive) {
+                if let rendition = renditionToDelete {
+                    deletePermanently(rendition)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the derived pages. The original document is unchanged.")
         }
     }
 
@@ -154,6 +190,14 @@ struct TrashView: View {
         }
     }
 
+    private func deletePermanently(_ rendition: WatermarkRendition) {
+        Task {
+            guard await store.deletePermanently(rendition) == false else { return }
+            recoveryMessage = store.errorMessage ?? "Could not delete copy. Try again."
+            store.errorMessage = nil
+        }
+    }
+
     private func refreshRetentionAtDayBoundary() async {
         let calendar = Calendar.autoupdatingCurrent
         while !Task.isCancelled {
@@ -177,6 +221,22 @@ struct TrashView: View {
                 recoveryMessage = nil
             }
         })
+    }
+
+    private var documentDeletionMessage: String {
+        guard let documentToDelete else { return "This removes the document's local files and cannot be undone." }
+        let copies = store.relatedCopyCount(for: documentToDelete.id)
+        return copies == 0
+            ? "This removes the document's local files and cannot be undone."
+            : "This also permanently removes \(copies) related watermarked cop\(copies == 1 ? "y" : "ies") and cannot be undone."
+    }
+
+    private var folderDeletionMessage: String {
+        guard let folderToDelete else { return "This permanently removes the folder and its documents." }
+        let copies = store.relatedCopyCount(in: folderToDelete)
+        return copies == 0
+            ? "This permanently removes the folder and its documents."
+            : "This permanently removes the folder, its documents, and \(copies) related watermarked cop\(copies == 1 ? "y" : "ies")."
     }
 }
 

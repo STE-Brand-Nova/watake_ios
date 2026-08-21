@@ -29,6 +29,8 @@ public actor WatakeFileStorage {
         try createDirectoryIfNeeded(StorageLayout.foldersRoot(root))
         try createDirectoryIfNeeded(StorageLayout.tagsRoot(root))
         try createDirectoryIfNeeded(StorageLayout.presetsRoot(root))
+        try createDirectoryIfNeeded(StorageLayout.recipientsRoot(root))
+        try createDirectoryIfNeeded(StorageLayout.issuancesRoot(root))
         TemporaryFileCleanup.removeStaleTemporaryFiles(under: root, fileManager: fileManager)
         _ = try encryptionKey()
         isPrepared = true
@@ -147,6 +149,18 @@ public actor WatakeFileStorage {
         guard let value = try readEncryptedRecord(WatermarkPreset.self, at: url) else {
             return nil
         }
+        try validated(value.validate)
+        return value
+    }
+
+    private func readRecipient(at url: URL) throws -> WatermarkRecipient? {
+        guard let value = try readEncryptedRecord(WatermarkRecipient.self, at: url) else { return nil }
+        try validated(value.validate)
+        return value
+    }
+
+    private func readIssuance(at url: URL) throws -> WatermarkIssuance? {
+        guard let value = try readEncryptedRecord(WatermarkIssuance.self, at: url) else { return nil }
         try validated(value.validate)
         return value
     }
@@ -439,8 +453,16 @@ extension WatakeFileStorage: DocumentRepository {
     }
 
     public func hasOtherReferences(to asset: AssetReference, excludingDocumentIds: Set<UUID>) async throws -> Bool {
+        try referencedAssetIDs(excludingDocumentIds: excludingDocumentIds).contains(asset.id)
+    }
+
+    /// Builds the complete live asset-reference set in one decrypt/parse pass.
+    /// Destructive batch operations use this once, rather than rescanning the
+    /// entire archive for every candidate page or logo.
+    public func referencedAssetIDs(excludingDocumentIds: Set<UUID> = []) throws -> Set<UUID> {
         try ensurePrepared()
         let root = try resolvedRoot()
+        var references: Set<UUID> = []
         let folderIds = try listRecordIDs(in: StorageLayout.foldersRoot(root))
         for folderId in folderIds {
             let documentIds = try listRecordIDs(in: StorageLayout.documentsRoot(root, folderId))
@@ -450,15 +472,41 @@ extension WatakeFileStorage: DocumentRepository {
                     owningFolderId: folderId,
                     root: root
                 ) {
-                    for page in doc.pages {
-                        if page.source == asset || page.rectified == asset {
-                            return true
-                        }
-                    }
+                    references.formUnion(assetIDs(in: doc))
                 }
             }
         }
-        return false
+        let presetIDs = try listRecordIDs(in: StorageLayout.presetsRoot(root), fileExtension: ".json.enc")
+        for preset in try presetIDs.compactMap({ try readPreset(at: StorageLayout.presetMetadataFile(root, $0)) }) {
+            if let image = preset.config.image {
+                references.insert(image.assetRef.id)
+            }
+        }
+        let issuanceIDs = try listRecordIDs(in: StorageLayout.issuancesRoot(root), fileExtension: ".json.enc")
+        for issuance in try issuanceIDs.compactMap({ try readIssuance(at: StorageLayout.issuanceMetadataFile(root, $0)) }) {
+            references.formUnion(assetIDs(in: issuance))
+        }
+        return references
+    }
+
+    private func assetIDs(in document: StoredDocument) -> Set<UUID> {
+        document.pages.reduce(into: []) { references, page in
+            references.insert(page.source.id)
+            if let rectified = page.rectified {
+                references.insert(rectified.id)
+            }
+        }
+    }
+
+    private func assetIDs(in issuance: WatermarkIssuance) -> Set<UUID> {
+        var references = Set(issuance.templateConfig.image.map { [$0.assetRef.id] } ?? [])
+        for rendition in issuance.renditions {
+            if let image = rendition.config.image {
+                references.insert(image.assetRef.id)
+            }
+            rendition.pages.forEach { references.insert($0.watermarked.id) }
+        }
+        return references
     }
 
     public func tags() async throws -> [Tag] {
@@ -532,6 +580,10 @@ extension WatakeFileStorage: DocumentAssetStore {
     }
 
     public func readAsset(_ reference: AssetReference) async throws -> Data {
+        try readValidatedAsset(reference)
+    }
+
+    private func readValidatedAsset(_ reference: AssetReference) throws -> Data {
         try ensurePrepared()
         try reference.validate()
         let root = try resolvedRoot()
@@ -579,6 +631,150 @@ extension WatakeFileStorage: DocumentAssetStore {
 }
 
 extension WatakeFileStorage: WatermarkPresetStore {}
+
+extension WatakeFileStorage: WatermarkCopyRepository {
+    public func watermarkRecipients() async throws -> [WatermarkRecipient] {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let ids = try listRecordIDs(in: StorageLayout.recipientsRoot(root), fileExtension: ".json.enc")
+        return try ids.compactMap { try readRecipient(at: StorageLayout.recipientMetadataFile(root, $0)) }
+            .sorted {
+                let order = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+                return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+            }
+    }
+
+    public func saveWatermarkRecipient(_ recipient: WatermarkRecipient) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        try persistWatermarkRecipient(recipient, root: root)
+    }
+
+    private func persistWatermarkRecipient(_ recipient: WatermarkRecipient, root: URL) throws {
+        try recipient.validate()
+        // Keep the uniqueness check and write in one actor-isolated,
+        // non-suspending transaction.
+        let ids = try listRecordIDs(in: StorageLayout.recipientsRoot(root), fileExtension: ".json.enc")
+        let hasDuplicateName = try ids
+            .compactMap { try readRecipient(at: StorageLayout.recipientMetadataFile(root, $0)) }
+            .contains {
+                $0.id != recipient.id && $0.displayName.caseInsensitiveCompare(recipient.displayName) == .orderedSame
+            }
+        guard !hasDuplicateName else {
+            throw WatermarkCopyStoreError.duplicateRecipientName
+        }
+        try writeEncryptedRecord(recipient, to: StorageLayout.recipientMetadataFile(root, recipient.id), root: root)
+    }
+
+    public func watermarkIssuances() async throws -> [WatermarkIssuance] {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let ids = try listRecordIDs(in: StorageLayout.issuancesRoot(root), fileExtension: ".json.enc")
+        return try ids.compactMap { try readIssuance(at: StorageLayout.issuanceMetadataFile(root, $0)) }
+            .sorted { $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id.uuidString < $1.id.uuidString }
+    }
+
+    /// Metadata is the issuance commit marker. Callers stage and integrity-check
+    /// every referenced asset before this write, so readers either see the
+    /// whole batch or no batch at all.
+    public func saveWatermarkIssuance(_ issuance: WatermarkIssuance) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        try persistWatermarkIssuance(issuance, root: root)
+    }
+
+    private func persistWatermarkIssuance(_ issuance: WatermarkIssuance, root: URL) throws {
+        try issuance.validate()
+        for rendition in issuance.renditions {
+            for page in rendition.pages {
+                _ = try readValidatedAsset(page.watermarked)
+            }
+        }
+        if let image = issuance.templateConfig.image, image.enabled {
+            _ = try readValidatedAsset(image.assetRef)
+        }
+        try writeEncryptedRecord(issuance, to: StorageLayout.issuanceMetadataFile(root, issuance.id), root: root)
+    }
+
+    public func commitWatermarkIssuance(
+        _ issuance: WatermarkIssuance,
+        recipient: WatermarkRecipient
+    ) async throws -> WatermarkIssuance {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let recipientURL = StorageLayout.recipientMetadataFile(root, recipient.id)
+        let recipientAlreadyExisted = fileManager.fileExists(atPath: recipientURL.path)
+        do {
+            // This entire read/allocate/write path is non-suspending inside the
+            // storage actor, so separate issuance-service instances cannot
+            // publish the same recipient/document version.
+            try persistWatermarkRecipient(recipient, root: root)
+            let committed = try assigningCommittedVersions(
+                to: issuance,
+                recipientID: recipient.id,
+                root: root
+            )
+            try persistWatermarkIssuance(committed, root: root)
+            return committed
+        } catch {
+            if !recipientAlreadyExisted {
+                try? fileManager.removeItem(at: recipientURL)
+            }
+            throw error
+        }
+    }
+
+    private func assigningCommittedVersions(
+        to issuance: WatermarkIssuance,
+        recipientID: UUID,
+        root: URL
+    ) throws -> WatermarkIssuance {
+        let ids = try listRecordIDs(in: StorageLayout.issuancesRoot(root), fileExtension: ".json.enc")
+        let existing = try ids.compactMap { try readIssuance(at: StorageLayout.issuanceMetadataFile(root, $0)) }
+        var versions = existing
+            .filter { $0.id != issuance.id && $0.recipientId == recipientID }
+            .flatMap(\.renditions)
+            .reduce(into: [UUID: Int]()) { values, rendition in
+                values[rendition.documentId] = max(values[rendition.documentId] ?? 0, rendition.version)
+            }
+        let renditions = issuance.renditions.map { rendition in
+            let version = (versions[rendition.documentId] ?? 0) + 1
+            versions[rendition.documentId] = version
+            return WatermarkRendition(
+                id: rendition.id,
+                documentId: rendition.documentId,
+                issuanceId: rendition.issuanceId,
+                originalNameSnapshot: rendition.originalNameSnapshot,
+                version: version,
+                config: rendition.config,
+                pages: rendition.pages,
+                createdAt: rendition.createdAt,
+                deletedAt: rendition.deletedAt
+            )
+        }
+        return WatermarkIssuance(
+            id: issuance.id,
+            recipientId: issuance.recipientId,
+            recipientNameSnapshot: issuance.recipientNameSnapshot,
+            purpose: issuance.purpose,
+            templateConfig: issuance.templateConfig,
+            renditions: renditions,
+            createdAt: issuance.createdAt
+        )
+    }
+
+    public func removeWatermarkIssuance(id: UUID) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let path = StorageLayout.issuanceMetadataFile(root, id)
+        guard fileManager.fileExists(atPath: path.path) else { return }
+        do {
+            try fileManager.removeItem(at: path)
+        } catch {
+            throw StorageError.ioFailure
+        }
+    }
+}
 
 /// `document(id:)` and `readAsset(_:)` already satisfy this narrower port via
 /// the `DocumentRepository`/`DocumentAssetStore` conformances above.

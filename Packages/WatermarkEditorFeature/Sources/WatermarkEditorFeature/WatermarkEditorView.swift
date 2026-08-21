@@ -11,10 +11,26 @@
         @Bindable private var model: WatermarkEditorModel
         private let sourceImageData: Data
         private let onDone: () -> Void
+        private let actionTitle: String
+        private let previewRecipient: String
+        private let previewPurpose: String?
+        private let isActionDisabled: Bool
 
-        public init(model: WatermarkEditorModel, sourceImageData: Data, onDone: @escaping () -> Void) {
+        public init(
+            model: WatermarkEditorModel,
+            sourceImageData: Data,
+            actionTitle: String = "Done",
+            previewRecipient: String = "",
+            previewPurpose: String? = nil,
+            isActionDisabled: Bool = false,
+            onDone: @escaping () -> Void
+        ) {
             self.model = model
             self.sourceImageData = sourceImageData
+            self.actionTitle = actionTitle
+            self.previewRecipient = previewRecipient
+            self.previewPurpose = previewPurpose
+            self.isActionDisabled = isActionDisabled
             self.onDone = onDone
         }
 
@@ -29,6 +45,13 @@
             .background(WatakeColor.surface.base)
             .navigationTitle("Watermark")
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: PreviewContext(recipient: previewRecipient, purpose: previewPurpose)) {
+                model.configureRenderedPreview(
+                    sourceData: sourceImageData,
+                    recipient: previewRecipient,
+                    purpose: previewPurpose
+                )
+            }
             .onDisappear { model.cancelPreviewWork() }
         }
 
@@ -72,7 +95,19 @@
         private var preview: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                 WatermarkPresetStatusPill(state: model.activePresetState)
-                if let image = UIImage(data: sourceImageData) {
+                if let rendered = model.renderedPreviewData, let image = UIImage(data: rendered) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.md))
+                        .accessibilityLabel("Watermarked page preview")
+                } else if model.previewRenderFailed {
+                    WatakeEmptyState(
+                        systemImage: "exclamationmark.triangle",
+                        title: "Preview couldn't be rendered.",
+                        message: "Check the watermark layers or image and try again."
+                    )
+                } else if let image = UIImage(data: sourceImageData) {
                     WatermarkPreviewCanvas(sourceImage: image, preview: model.preview)
                 } else {
                     WatakeEmptyState(
@@ -84,11 +119,17 @@
             }
         }
 
+        private struct PreviewContext: Hashable {
+            let recipient: String
+            let purpose: String?
+        }
+
         private var doneButton: some View {
-            WatakeButton("Done", variant: .primary, accessibilityIdentifier: "watermarkEditor.done") {
+            WatakeButton(actionTitle, variant: .primary, accessibilityIdentifier: "watermarkEditor.done") {
                 onDone()
             }
-            .accessibilityHint("Closes the editor and discards this working draft")
+            .disabled(isActionDisabled)
+            .accessibilityHint("Continues with the current watermark design")
         }
     }
 
@@ -112,28 +153,53 @@
 
     private struct WatermarkInspector: View {
         @Bindable var model: WatermarkEditorModel
+        @State private var headingExpanded = false
+        @State private var bodyExpanded = true
+        @State private var captionExpanded = false
+        @State private var imageExpanded = false
+        @State private var placementExpanded = true
 
         var body: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.md) {
                 WatermarkPresetActions(model: model)
-                WatermarkEditorSegmentedControl(selection: $model.selectedTab)
-                inspectorContent
+                inspectorCard("Heading", systemImage: "textformat.size.larger", isExpanded: $headingExpanded) {
+                    WatermarkTextLayerInspector(kind: .heading, model: model)
+                }
+                inspectorCard("Body", systemImage: "text.alignleft", isExpanded: $bodyExpanded) {
+                    WatermarkTextLayerInspector(kind: .body, model: model)
+                }
+                inspectorCard("Caption", systemImage: "textformat.size.smaller", isExpanded: $captionExpanded) {
+                    WatermarkTextLayerInspector(kind: .caption, model: model)
+                }
+                inspectorCard("Image", systemImage: "photo", isExpanded: $imageExpanded) {
+                    WatermarkImageLayerInspector(model: model)
+                }
+                inspectorCard(
+                    "Placement & Repetition",
+                    systemImage: "square.grid.3x3",
+                    isExpanded: $placementExpanded
+                ) {
+                    WatermarkGlobalInspector(model: model)
+                }
             }
         }
 
-        @ViewBuilder
-        private var inspectorContent: some View {
-            switch model.selectedTab {
-            case .heading:
-                WatermarkTextLayerInspector(kind: .heading, model: model)
-            case .body:
-                WatermarkTextLayerInspector(kind: .body, model: model)
-            case .caption:
-                WatermarkTextLayerInspector(kind: .caption, model: model)
-            case .image:
-                WatermarkImageLayerInspector(model: model)
-            case .global:
-                WatermarkGlobalInspector(model: model)
+        private func inspectorCard(
+            _ title: String,
+            systemImage: String,
+            isExpanded: Binding<Bool>,
+            @ViewBuilder content: @escaping () -> some View
+        ) -> some View {
+            WatakeCard(surface: .raised) {
+                DisclosureGroup(isExpanded: isExpanded) {
+                    content()
+                        .padding(.top, WatakeSpacing.sm)
+                } label: {
+                    Label(title, systemImage: systemImage)
+                        .watakeType(.bodyEmphasis)
+                        .foregroundStyle(WatakeColor.text.primary)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
             }
         }
     }
@@ -379,9 +445,29 @@
                         setValue: { model.setTileSpacingY($0) }
                     )
                 }
-                WatermarkUnavailableInspector(
-                    title: "Position, rotation, opacity, automatic watermark",
-                    message: "Shared placement, rotation, opacity, and automatic watermark controls arrive later."
+                if model.layoutMode == .single {
+                    Picker("Position", selection: Binding(
+                        get: { model.globalPosition },
+                        set: { model.setGlobalPosition($0) }
+                    )) {
+                        ForEach(WatermarkPosition.allCases, id: \.self) { position in
+                            Text(position.title).tag(position)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(minHeight: 44)
+                }
+                spacingControls(
+                    title: "Global rotation",
+                    value: model.globalRotation,
+                    range: -180 ... 180,
+                    setValue: { model.setGlobalRotation($0) }
+                )
+                spacingControls(
+                    title: "Global opacity",
+                    value: model.globalOpacity,
+                    range: 0 ... 1,
+                    setValue: { model.setGlobalOpacity($0) }
                 )
             }
         }
@@ -402,14 +488,19 @@
             }
         }
 
-        private func spacingControls(title: String, value: Double, setValue: @escaping (Double) -> Void) -> some View {
+        private func spacingControls(
+            title: String,
+            value: Double,
+            range: ClosedRange<Double> = 0.10 ... 1.00,
+            setValue: @escaping (Double) -> Void
+        ) -> some View {
             let binding = Binding(get: { value }, set: setValue)
             return VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                 Text(title)
                     .watakeType(.bodyEmphasis)
                     .foregroundStyle(WatakeColor.text.primary)
                 HStack(spacing: WatakeSpacing.sm) {
-                    Slider(value: binding, in: 0.10 ... 1.00, step: 0.01)
+                    Slider(value: binding, in: range, step: range.upperBound > 2 ? 1 : 0.01)
                         .tint(WatakeColor.brand.primary)
                         .frame(minHeight: 44)
                         .accessibilityLabel("\(title) slider")
@@ -420,7 +511,7 @@
                         .accessibilityLabel(title)
                         .accessibilityValue(value.formatted(.number.precision(.fractionLength(2))))
                 }
-                Text("0.10 to 1.00")
+                Text("\(range.lowerBound.formatted()) to \(range.upperBound.formatted())")
                     .watakeType(.caption)
                     .foregroundStyle(WatakeColor.text.secondary)
             }
@@ -428,6 +519,26 @@
 
         private var layoutBinding: Binding<WatermarkLayoutMode> {
             Binding(get: { model.layoutMode }, set: { model.setLayoutMode($0) })
+        }
+    }
+
+    extension WatermarkPosition {
+        fileprivate static var allCases: [WatermarkPosition] {
+            [.topLeft, .topCenter, .topRight, .midLeft, .center, .midRight, .botLeft, .botCenter, .botRight]
+        }
+
+        fileprivate var title: String {
+            switch self {
+            case .topLeft: "Top left"
+            case .topCenter: "Top center"
+            case .topRight: "Top right"
+            case .midLeft: "Middle left"
+            case .center: "Center"
+            case .midRight: "Middle right"
+            case .botLeft: "Bottom left"
+            case .botCenter: "Bottom center"
+            case .botRight: "Bottom right"
+            }
         }
     }
 
@@ -589,6 +700,8 @@
                     let point = preview.tilePoints[index]
                     WatermarkPreviewCompositionView(preview: preview)
                         .frame(width: pageSize.width, height: pageSize.height)
+                        .rotationEffect(.degrees(preview.globalRotation))
+                        .opacity(preview.globalOpacity)
                         .position(x: point.normalizedX * pageSize.width, y: point.normalizedY * pageSize.height)
                 }
             }

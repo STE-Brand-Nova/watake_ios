@@ -1,3 +1,4 @@
+import DocumentProcessing
 import Foundation
 import Observation
 import WatakeDomain
@@ -17,14 +18,21 @@ public final class WatermarkEditorModel: Identifiable {
     public internal(set) var presetLibraryState: WatermarkPresetLibraryState = .idle
     public internal(set) var presetSaveState: WatermarkPresetSaveState = .idle
     public internal(set) var activePresetState: WatermarkActivePresetState = .none
+    public private(set) var renderedPreviewData: Data?
+    public private(set) var previewRenderFailed = false
 
     var colorInputs: [WatermarkTextLayerKind: String]
     var imageTintInput = ""
     private let imageImporter: any WatermarkImageImporting
     let presetStore: any WatermarkPresetStore
+    let assetStore: (any DocumentAssetStore)?
+    private let compositor: WatermarkPageCompositor
     let now: @Sendable () -> Date
     let makeUUID: @Sendable () -> UUID
     var imageData: Data?
+    private var previewSourceData: Data?
+    private var previewRecipient = ""
+    private var previewPurpose: String?
     var imageImportTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     var presetTask: Task<Void, Never>?
@@ -37,6 +45,8 @@ public final class WatermarkEditorModel: Identifiable {
         selectedTab: WatermarkEditorTab = .heading,
         imageImporter: any WatermarkImageImporting = WatermarkImageImporter(),
         presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
+        assetStore: (any DocumentAssetStore)? = nil,
+        compositor: WatermarkPageCompositor = WatermarkPageCompositor(),
         now: @escaping @Sendable () -> Date = Date.init,
         makeUUID: @escaping @Sendable () -> UUID = UUID.init
     ) {
@@ -44,6 +54,8 @@ public final class WatermarkEditorModel: Identifiable {
         self.selectedTab = selectedTab
         self.imageImporter = imageImporter
         self.presetStore = presetStore
+        self.assetStore = assetStore
+        self.compositor = compositor
         self.now = now
         self.makeUUID = makeUUID
         preview = WatermarkEditorPreview(draft: draft, imageData: nil)
@@ -54,7 +66,9 @@ public final class WatermarkEditorModel: Identifiable {
             }
         )
     }
+}
 
+extension WatermarkEditorModel {
     public var previewLayers: [WatermarkEditorPreviewLayer] {
         preview.textLayers
     }
@@ -249,6 +263,70 @@ public final class WatermarkEditorModel: Identifiable {
         schedulePreview()
     }
 
+    public var globalPosition: WatermarkPosition {
+        draft.globalPosition
+    }
+
+    public var globalRotation: Double {
+        draft.globalRotation
+    }
+
+    public var globalOpacity: Double {
+        draft.globalOpacity
+    }
+
+    public func setGlobalPosition(_ value: WatermarkPosition) {
+        draft.setGlobalPosition(value)
+        schedulePreview()
+    }
+
+    public func setGlobalRotation(_ value: Double) {
+        draft.setGlobalRotation(value)
+        schedulePreview()
+    }
+
+    public func setGlobalOpacity(_ value: Double) {
+        draft.setGlobalOpacity(value)
+        schedulePreview()
+    }
+
+    public func watermarkImageData() -> Data? {
+        imageData
+    }
+
+    public var canPersistImagePreset: Bool {
+        draft.watermarkConfig.image == nil || (assetStore != nil && imageData != nil)
+    }
+
+    public func configureRenderedPreview(sourceData: Data, recipient: String, purpose: String?) {
+        previewSourceData = sourceData
+        previewRecipient = recipient
+        previewPurpose = purpose
+        loadDraftImageIfNeeded()
+        schedulePreview(draftDidChange: false)
+    }
+
+    private func loadDraftImageIfNeeded() {
+        guard imageData == nil, let reference = draft.watermarkConfig.image?.assetRef, let assetStore else { return }
+        imageImportTask?.cancel()
+        imageImportTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await assetStore.readAsset(reference)
+                guard !Task.isCancelled, draft.watermarkConfig.image?.assetRef == reference else { return }
+                imageData = data
+                imageImportState = .loaded
+                imageImportError = nil
+                schedulePreview(draftDidChange: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                imageImportState = .rejected(.undecodable)
+                imageImportError = .undecodable
+                schedulePreview(draftDidChange: false)
+            }
+        }
+    }
+
     public func cancelPreviewWork() {
         previewTask?.cancel()
         imageImportTask?.cancel()
@@ -281,7 +359,34 @@ public final class WatermarkEditorModel: Identifiable {
             }
             guard let self, !Task.isCancelled, previewRevision == revision else { return }
             preview = WatermarkEditorPreview(draft: draft, imageData: imageData)
+            guard let sourceData = previewSourceData else { return }
+            do {
+                let rendered = try await compositor.renderJPEG(
+                    sourceData: sourceData,
+                    config: resolvedPreviewConfig(),
+                    imageData: imageData,
+                    maximumPixelDimension: 1600,
+                    quality: 0.9
+                )
+                guard !Task.isCancelled, previewRevision == revision else { return }
+                renderedPreviewData = rendered
+                previewRenderFailed = false
+            } catch {
+                guard !Task.isCancelled, previewRevision == revision else { return }
+                renderedPreviewData = nil
+                previewRenderFailed = true
+            }
         }
+    }
+
+    private func resolvedPreviewConfig() throws -> WatermarkConfig {
+        let recipient = previewRecipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try WatermarkTemplateResolver.resolve(
+            draft.watermarkConfig,
+            recipient: recipient,
+            purpose: previewPurpose,
+            date: WatermarkTemplateResolver.mediumDateString(from: now())
+        )
     }
 }
 

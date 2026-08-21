@@ -93,11 +93,7 @@
                     } header: {
                         Text("Save current configuration")
                     } footer: {
-                        if model.draft.watermarkConfig.image != nil {
-                            Text("Image presets will be available after image assets can be saved.")
-                        } else {
-                            Text("Saving does not apply or export a watermark.")
-                        }
+                        Text("The current text, image, placement, and repetition settings will be saved. Saving does not create a copy.")
                     }
                 }
                 .navigationTitle("Save Preset")
@@ -122,7 +118,7 @@
 
         private var canSave: Bool {
             if case .valid = nameValidation {
-                return model.draft.watermarkConfig.image == nil && model.presetSaveState != .saving
+                return model.canPersistImagePreset && model.presetSaveState != .saving
             }
             return false
         }
@@ -134,7 +130,7 @@
             switch model.presetSaveState {
             case .invalidName(let validation): return validation.message
             case .conflict: return "A preset with this name already exists."
-            case .imageUnsupported: return "Image presets will be available after image assets can be saved."
+            case .imageUnsupported: return "Reimport the watermark image before saving this preset."
             case .failure: return "Preset could not be saved. Try again."
             case .idle, .saving, .saved: return nameValidation.message
             }
@@ -204,23 +200,16 @@
                     Text(item.preset.name)
                         .watakeType(.bodyEmphasis)
                         .foregroundStyle(WatakeColor.text.primary)
-                    if item.isAvailable {
-                        Text(item.accessibilitySummary)
-                            .watakeType(.caption)
-                            .foregroundStyle(WatakeColor.text.secondary)
-                    } else {
-                        Text("Unavailable: image asset is not stored yet.")
-                            .watakeType(.caption)
-                            .foregroundStyle(WatakeColor.text.secondary)
-                    }
+                    Text(item.accessibilitySummary)
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.text.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .disabled(!item.isAvailable)
             .accessibilityLabel(item.preset.name)
-            .accessibilityValue(item.isAvailable ? item.accessibilitySummary : "Unavailable image preset")
-            .accessibilityHint(item.isAvailable ? "Applies an editable copy" : "Image presets cannot be applied yet")
+            .accessibilityValue(item.accessibilitySummary)
+            .accessibilityHint("Applies an editable copy")
         }
     }
 #endif

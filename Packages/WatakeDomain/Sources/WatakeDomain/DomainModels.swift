@@ -25,6 +25,9 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case tileSpacingRequiredForTiledLayout
     case tileSpacingMustBeNilForSingleLayout
     case tileSpacingOutOfRange(Double)
+    case renditionRequiresPage
+    case issuanceRequiresRendition
+    case invalidRenditionVersion(Int)
 }
 
 public enum WatakeContractCoding {
@@ -390,6 +393,21 @@ extension WatermarkConfig {
             .compactMap(\.self)
             .filter(\.isRenderable)
     }
+
+    /// The single eligibility rule shared by editor validation, previews, and
+    /// immutable rendition rendering.
+    public var hasVisibleLayer: Bool {
+        guard globalOpacity > 0 else { return false }
+        let hasVisibleText = renderableTextLayersInCompositionOrder.contains { $0.opacity > 0 }
+        let hasVisibleImage = image.map { $0.enabled && $0.opacity > 0 } ?? false
+        return hasVisibleText || hasVisibleImage
+    }
+
+    /// Tokens are case-sensitive by contract. Disabled layers remain part of
+    /// the saved template, so they are included in template validation.
+    public var usesPurposeToken: Bool {
+        [heading, body, caption].compactMap(\.self).contains { $0.text.contains("{purpose}") }
+    }
 }
 
 public struct WatermarkImageLayer: Codable, Equatable, Sendable {
@@ -484,23 +502,109 @@ public struct WatermarkPreset: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-public struct WatermarkRendition: Identifiable, Codable, Equatable, Sendable {
+/// A reusable, local-only identity used to group issued copies. Contact data is
+/// deliberately excluded: Watake only needs a stable display name to make a
+/// recipient searchable and reusable without collecting unnecessary PII.
+public struct WatermarkRecipient: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
-    public let documentId: UUID
-    public let config: WatermarkConfig
-    public let pages: [RenditionPage]
+    public let displayName: String
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public init(id: UUID, displayName: String, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.displayName = displayName
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    public func validate() throws {
+        try DomainValidation.validateTrimmed(displayName, field: "displayName", maxLength: 120)
+    }
+}
+
+/// One user-confirmed watermark operation. A folder run produces several
+/// renditions in one issuance, so readers never expose a partially completed
+/// batch.
+public struct WatermarkIssuance: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public let recipientId: UUID?
+    public let recipientNameSnapshot: String
+    public let purpose: String?
+    public let templateConfig: WatermarkConfig
+    public let renditions: [WatermarkRendition]
     public let createdAt: Date
 
-    public init(id: UUID, documentId: UUID, config: WatermarkConfig, pages: [RenditionPage], createdAt: Date) {
+    public init(
+        id: UUID,
+        recipientId: UUID?,
+        recipientNameSnapshot: String,
+        purpose: String? = nil,
+        templateConfig: WatermarkConfig,
+        renditions: [WatermarkRendition],
+        createdAt: Date
+    ) {
         self.id = id
-        self.documentId = documentId
-        self.config = config
-        self.pages = pages
+        self.recipientId = recipientId
+        self.recipientNameSnapshot = recipientNameSnapshot
+        self.purpose = purpose
+        self.templateConfig = templateConfig
+        self.renditions = renditions
         self.createdAt = createdAt
     }
 
     public func validate() throws {
+        try DomainValidation.validateTrimmed(recipientNameSnapshot, field: "recipientNameSnapshot", maxLength: 120)
+        if let purpose {
+            try DomainValidation.validateTrimmed(purpose, field: "purpose", maxLength: 200)
+        }
+        guard !renditions.isEmpty else { throw DomainValidationError.issuanceRequiresRendition }
+        try templateConfig.validate()
+        try renditions.forEach { try $0.validate() }
+        guard renditions.allSatisfy({ $0.issuanceId == nil || $0.issuanceId == id }) else {
+            throw DomainValidationError.issuanceRequiresRendition
+        }
+    }
+}
+
+public struct WatermarkRendition: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public let documentId: UUID
+    public let issuanceId: UUID?
+    public let originalNameSnapshot: String
+    public let version: Int
+    public let config: WatermarkConfig
+    public let pages: [RenditionPage]
+    public let createdAt: Date
+    public let deletedAt: Date?
+
+    public init(
+        id: UUID,
+        documentId: UUID,
+        issuanceId: UUID? = nil,
+        originalNameSnapshot: String = "Unassigned document",
+        version: Int = 1,
+        config: WatermarkConfig,
+        pages: [RenditionPage],
+        createdAt: Date,
+        deletedAt: Date? = nil
+    ) {
+        self.id = id
+        self.documentId = documentId
+        self.issuanceId = issuanceId
+        self.originalNameSnapshot = originalNameSnapshot
+        self.version = version
+        self.config = config
+        self.pages = pages
+        self.createdAt = createdAt
+        self.deletedAt = deletedAt
+    }
+
+    public func validate() throws {
+        try DomainValidation.validateTrimmed(originalNameSnapshot, field: "originalNameSnapshot", maxLength: 200)
+        guard version >= 1 else { throw DomainValidationError.invalidRenditionVersion(version) }
         try config.validate()
+        guard !pages.isEmpty else { throw DomainValidationError.renditionRequiresPage }
         try DomainValidation.validateRenditionPages(pages)
         try pages.forEach { try $0.validate() }
     }

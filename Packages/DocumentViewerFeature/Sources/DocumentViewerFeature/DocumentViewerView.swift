@@ -15,6 +15,7 @@
         @Bindable private var model: DocumentViewerModel
         private let presetStore: any WatermarkPresetStore
         private let onClose: (() -> Void)?
+        private let onWatermarkRequested: ((UUID) -> Void)?
         @FocusState private var isViewerFocused: Bool
         @State private var watermarkEditor: WatermarkEditorPresentation?
 
@@ -24,10 +25,12 @@
         public init(
             model: DocumentViewerModel,
             presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
+            onWatermarkRequested: ((UUID) -> Void)? = nil,
             onClose: (() -> Void)? = nil
         ) {
             self.model = model
             self.presetStore = presetStore
+            self.onWatermarkRequested = onWatermarkRequested
             self.onClose = onClose
         }
 
@@ -90,35 +93,43 @@
                 }
 
             case .content(let content):
-                DocumentViewerContentView(content: content, widthClass: widthClass, model: model)
-                    .navigationTitle(content.document.name)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                guard case .loaded(let data) = content.pageAsset else { return }
-                                watermarkEditor = WatermarkEditorPresentation(
-                                    sourceImageData: data,
-                                    presetStore: presetStore
-                                )
-                            } label: {
-                                Label("Watermark", systemImage: "paintbrush")
+                contentState(content, widthClass: widthClass)
+            }
+        }
+
+        private func contentState(_ content: DocumentViewerContent, widthClass: WatakeWidthClass) -> some View {
+            DocumentViewerContentView(content: content, widthClass: widthClass, model: model)
+                .navigationTitle(content.document.name)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            if let onWatermarkRequested {
+                                onWatermarkRequested(content.document.id)
+                                return
                             }
-                            .disabled(!isPageLoaded(content))
-                            .accessibilityHint("Edits an in-memory watermark preview")
+                            guard case .loaded(let data) = content.pageAsset else { return }
+                            watermarkEditor = WatermarkEditorPresentation(
+                                sourceImageData: data,
+                                presetStore: presetStore
+                            )
+                        } label: {
+                            Label("Watermark", systemImage: "paintbrush")
                         }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            if model.ocrState.isExtracting {
-                                Button("Cancel extraction") { model.cancelTextExtraction() }
-                                    .accessibilityLabel("Cancel text extraction")
-                            } else {
-                                Button { model.extractText() } label: {
-                                    Label("Extract Text", systemImage: "text.viewfinder")
-                                }
-                                .accessibilityHint("Extracts private text from every page on this device")
+                        .disabled(!isPageLoaded(content))
+                        .accessibilityHint("Creates a recipient-based watermarked copy of every page")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        if model.ocrState.isExtracting {
+                            Button("Cancel extraction") { model.cancelTextExtraction() }
+                                .accessibilityLabel("Cancel text extraction")
+                        } else {
+                            Button { model.extractText() } label: {
+                                Label("Extract Text", systemImage: "text.viewfinder")
                             }
+                            .accessibilityHint("Extracts private text from every page on this device")
                         }
                     }
-            }
+                }
         }
 
         private func isPageLoaded(_ content: DocumentViewerContent) -> Bool {

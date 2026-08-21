@@ -143,27 +143,33 @@ struct WatermarkPresetTests {
     }
 
     @MainActor
-    @Test func imageBearingStoredPresetIsUnavailableAndLeavesDraftUntouched() {
-        let current = WatermarkEditorDraft(body: .init(text: "Keep", enabled: true))
-        let unavailable = WatermarkPreset(
+    @Test func imageBearingStoredPresetAppliesAndLoadsItsAsset() async {
+        let reference = imageReference()
+        let stored = WatermarkPreset(
             id: UUID(),
             name: "Image",
-            config: config(body: "Other", image: imageReference()),
+            config: config(body: "Other", image: reference),
             createdAt: .now,
             updatedAt: .now
         )
-        let model = WatermarkEditorModel(draft: current, presetStore: MemoryPresetStore())
-        let item = WatermarkPresetLibraryItem(preset: unavailable)
+        let model = WatermarkEditorModel(
+            presetStore: MemoryPresetStore(),
+            assetStore: MemoryAssetStore(values: [reference.id: Data([0])])
+        )
+        let item = WatermarkPresetLibraryItem(preset: stored)
 
-        #expect(!item.isAvailable)
+        #expect(item.isAvailable)
         model.applyPreset(item)
+        await model.waitForPresetWork()
 
-        #expect(model.draft == current)
-        #expect(model.activePresetState == .none)
+        #expect(model.draft.watermarkConfig.body == stored.config.body)
+        #expect(model.draft.watermarkConfig.image == stored.config.image)
+        #expect(model.watermarkImageData() == Data([0]))
+        #expect(model.activePresetState == .selected(id: stored.id, name: stored.name))
     }
 
     @MainActor
-    @Test func libraryMarksStoredImagePresetUnavailable() async {
+    @Test func libraryMarksStoredImagePresetAvailable() async {
         let imagePreset = WatermarkPreset(
             id: UUID(),
             name: "Image",
@@ -181,7 +187,7 @@ struct WatermarkPresetTests {
             return
         }
         #expect(items == [.init(preset: imagePreset)])
-        #expect(!items[0].isAvailable)
+        #expect(items[0].isAvailable)
     }
 
     @MainActor
@@ -262,6 +268,31 @@ private struct DuplicateSavingPresetStore: WatermarkPresetStore {
 
     func saveWatermarkPreset(_ preset: WatermarkPreset) async throws {
         throw WatermarkPresetStoreError.duplicateName
+    }
+}
+
+private actor MemoryAssetStore: DocumentAssetStore {
+    private var values: [UUID: Data]
+
+    init(values: [UUID: Data] = [:]) {
+        self.values = values
+    }
+
+    func saveAsset(_ data: Data, reference: AssetReference) async throws {
+        values[reference.id] = data
+    }
+
+    func readAsset(_ reference: AssetReference) async throws -> Data {
+        guard let data = values[reference.id] else { throw WatermarkPresetStoreError.unavailable }
+        return data
+    }
+
+    func containsAsset(_ reference: AssetReference) async throws -> Bool {
+        values[reference.id] != nil
+    }
+
+    func removeAsset(_ reference: AssetReference) async throws {
+        values[reference.id] = nil
     }
 }
 

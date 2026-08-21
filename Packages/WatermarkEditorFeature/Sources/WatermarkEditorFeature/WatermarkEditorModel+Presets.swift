@@ -26,7 +26,7 @@ extension WatermarkEditorModel {
             presetSaveState = .invalidName(WatermarkPresetNameValidation.validate(rawName))
             return
         }
-        guard draft.watermarkConfig.image == nil else {
+        guard canPersistImagePreset else {
             presetSaveState = .imageUnsupported
             return
         }
@@ -49,10 +49,9 @@ extension WatermarkEditorModel {
         }
     }
 
-    /// Applies only image-free stored presets. The config snapshot is copied
-    /// into a fresh draft, keeping stored preset data immutable.
+    /// Copies the immutable stored configuration into a fresh editable draft.
+    /// Image bytes are loaded through the asset boundary before publication.
     public func applyPreset(_ item: WatermarkPresetLibraryItem) {
-        guard item.isAvailable else { return }
         let operation = beginPresetOperation()
         guard isCurrentPresetOperation(operation) else { return }
         draft = WatermarkEditorDraft(config: item.preset.config)
@@ -64,6 +63,22 @@ extension WatermarkEditorModel {
         draftRevision += 1
         activePresetState = .selected(id: item.preset.id, name: item.preset.name)
         schedulePreview(draftDidChange: false)
+        guard let reference = item.preset.config.image?.assetRef else { return }
+        presetTask = Task { [weak self] in
+            guard let self, let assetStore else { return }
+            do {
+                let data = try await assetStore.readAsset(reference)
+                guard isCurrentPresetOperation(operation), !Task.isCancelled else { return }
+                imageData = data
+                imageImportState = .loaded
+                schedulePreview(draftDidChange: false)
+            } catch {
+                guard isCurrentPresetOperation(operation), !Task.isCancelled else { return }
+                imageImportError = .undecodable
+                imageImportState = .rejected(.undecodable)
+                schedulePreview(draftDidChange: false)
+            }
+        }
     }
 
     public func resetPresetSaveState() {
@@ -106,6 +121,7 @@ extension WatermarkEditorModel {
         savedDraftRevision: Int
     ) async {
         do {
+            try await persistPresetImageIfNeeded(preset)
             try await presetStore.saveWatermarkPreset(preset)
             guard isCurrentPresetOperation(operation), !Task.isCancelled else { return }
             presetSaveState = .saved
@@ -119,9 +135,23 @@ extension WatermarkEditorModel {
         } catch WatermarkPresetStoreError.duplicateName {
             guard isCurrentPresetOperation(operation), !Task.isCancelled else { return }
             presetSaveState = .conflict
+        } catch PresetImagePersistenceError.missingImageData {
+            presetSaveState = .imageUnsupported
         } catch {
             guard isCurrentPresetOperation(operation), !Task.isCancelled else { return }
             presetSaveState = .failure
         }
     }
+
+    private func persistPresetImageIfNeeded(_ preset: WatermarkPreset) async throws {
+        guard let reference = preset.config.image?.assetRef else { return }
+        guard let assetStore, let imageData else { throw PresetImagePersistenceError.missingImageData }
+        if try await !assetStore.containsAsset(reference) {
+            try await assetStore.saveAsset(imageData, reference: reference)
+        }
+    }
+}
+
+private enum PresetImagePersistenceError: Error {
+    case missingImageData
 }

@@ -41,6 +41,22 @@ enum StorageLayout {
         presetsRoot(root).appendingPathComponent("\(presetId.uuidString.lowercased()).json.enc", isDirectory: false)
     }
 
+    static func recipientsRoot(_ root: URL) -> URL {
+        root.appendingPathComponent("watermark-recipients", isDirectory: true)
+    }
+
+    static func recipientMetadataFile(_ root: URL, _ recipientId: UUID) -> URL {
+        recipientsRoot(root).appendingPathComponent("\(recipientId.uuidString.lowercased()).json.enc")
+    }
+
+    static func issuancesRoot(_ root: URL) -> URL {
+        root.appendingPathComponent("watermark-issuances", isDirectory: true)
+    }
+
+    static func issuanceMetadataFile(_ root: URL, _ issuanceId: UUID) -> URL {
+        issuancesRoot(root).appendingPathComponent("\(issuanceId.uuidString.lowercased()).json.enc")
+    }
+
     static func assetsRoot(_ root: URL) -> URL {
         root.appendingPathComponent("assets", isDirectory: true)
     }

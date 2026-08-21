@@ -118,6 +118,46 @@ struct RoundTripTests {
         #expect(try await storage.watermarkPresets().map(\.name) == ["Alpha", "beta", "zeta"])
     }
 
+    @Test("recipients are case-insensitively unique and issuance commit round trips")
+    func recipientAndIssuanceRoundTrip() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let recipient = WatermarkRecipient(id: UUID(), displayName: "Acme", createdAt: timestamp, updatedAt: timestamp)
+        try await storage.saveWatermarkRecipient(recipient)
+
+        let duplicate = WatermarkRecipient(id: UUID(), displayName: "acme", createdAt: timestamp, updatedAt: timestamp)
+        await #expect(throws: WatermarkCopyStoreError.duplicateRecipientName) {
+            try await storage.saveWatermarkRecipient(duplicate)
+        }
+
+        let bytes = Data("rendered-page".utf8)
+        let pageID = UUID()
+        let renditionID = UUID()
+        let reference = AssetReference(
+            id: UUID(),
+            relativePath: "renditions/\(renditionID.uuidString.lowercased())/pages/\(pageID.uuidString.lowercased()).jpg",
+            sha256Hex: sha256Hex(of: bytes),
+            byteSize: bytes.count,
+            mediaType: "image/jpeg"
+        )
+        try await storage.saveAsset(bytes, reference: reference)
+        let issuance = makeIssuance(
+            recipient: recipient,
+            timestamp: timestamp,
+            reference: reference,
+            pageID: pageID,
+            renditionID: renditionID
+        )
+        try await storage.saveWatermarkIssuance(issuance)
+
+        #expect(try await storage.watermarkRecipients() == [recipient])
+        #expect(try await storage.watermarkIssuances() == [issuance])
+    }
+
     @Test("concurrent watermark preset saves reject a duplicate name atomically")
     func concurrentWatermarkPresetSavesRejectDuplicateName() async throws {
         let root = EphemeralRootResolver()
@@ -136,6 +176,67 @@ struct RoundTripTests {
         #expect(results.filter(\.isSuccess).count == 1)
         #expect(results.compactMap(\.duplicateNameError) == [.duplicateName])
         #expect(try await storage.watermarkPresets().count == 1)
+    }
+
+    @Test("concurrent recipient saves reject a duplicate name atomically")
+    func concurrentRecipientSavesRejectDuplicateName() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let first = WatermarkRecipient(id: UUID(), displayName: "Acme", createdAt: .now, updatedAt: .now)
+        let second = WatermarkRecipient(id: UUID(), displayName: "acme", createdAt: .now, updatedAt: .now)
+
+        async let firstResult = saveRecipient(first, to: storage)
+        async let secondResult = saveRecipient(second, to: storage)
+        let results = await [firstResult, secondResult]
+
+        #expect(results.filter(\.isSuccess).count == 1)
+        #expect(results.compactMap(\.duplicateRecipientError) == [.duplicateRecipientName])
+        #expect(try await storage.watermarkRecipients().count == 1)
+    }
+
+    @Test("concurrent issuance commits allocate distinct recipient-relative versions")
+    func concurrentIssuanceCommitsAllocateDistinctVersions() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let recipient = WatermarkRecipient(id: UUID(), displayName: "Acme", createdAt: timestamp, updatedAt: timestamp)
+        let documentID = UUID()
+
+        let firstBytes = Data("first-rendered-page".utf8)
+        let secondBytes = Data("second-rendered-page".utf8)
+        let firstReference = renditionReference(bytes: firstBytes)
+        let secondReference = renditionReference(bytes: secondBytes)
+        try await storage.saveAsset(firstBytes, reference: firstReference)
+        try await storage.saveAsset(secondBytes, reference: secondReference)
+        let first = makeIssuance(
+            recipient: recipient,
+            timestamp: timestamp,
+            reference: firstReference,
+            pageID: UUID(),
+            renditionID: UUID(),
+            documentID: documentID
+        )
+        let second = makeIssuance(
+            recipient: recipient,
+            timestamp: timestamp,
+            reference: secondReference,
+            pageID: UUID(),
+            renditionID: UUID(),
+            documentID: documentID
+        )
+
+        async let firstCommit = storage.commitWatermarkIssuance(first, recipient: recipient)
+        async let secondCommit = storage.commitWatermarkIssuance(second, recipient: recipient)
+        let committed = try await [firstCommit, secondCommit]
+        let versions = committed.flatMap(\.renditions).map(\.version).sorted()
+
+        #expect(versions == [1, 2])
     }
 
     @Test("reassigning a document to a different folder is rejected")
@@ -223,9 +324,67 @@ struct RoundTripTests {
     }
 }
 
+private func makeIssuance(
+    recipient: WatermarkRecipient,
+    timestamp: Date,
+    reference: AssetReference,
+    pageID: UUID,
+    renditionID: UUID,
+    documentID: UUID = UUID()
+) -> WatermarkIssuance {
+    let config = WatermarkConfig(
+        automatic: false,
+        body: WatermarkTextLayer(
+            text: "For Acme", enabled: true, fontName: "Helvetica", sizePreset: .medium,
+            colorHex: "#0B1220", rotation: 0, opacity: 0.5
+        ),
+        globalPosition: .center,
+        globalRotation: 0,
+        globalOpacity: 1
+    )
+    return WatermarkIssuance(
+        id: UUID(),
+        recipientId: recipient.id,
+        recipientNameSnapshot: recipient.displayName,
+        purpose: "Hiring",
+        templateConfig: config,
+        renditions: [WatermarkRendition(
+            id: renditionID,
+            documentId: documentID,
+            originalNameSnapshot: "Diploma",
+            version: 1,
+            config: config,
+            pages: [RenditionPage(id: UUID(), pageId: pageID, index: 0, watermarked: reference)],
+            createdAt: timestamp
+        )],
+        createdAt: timestamp
+    )
+}
+
+private func renditionReference(bytes: Data) -> AssetReference {
+    let renditionID = UUID()
+    let pageID = UUID()
+    return AssetReference(
+        id: UUID(),
+        relativePath: "renditions/\(renditionID.uuidString.lowercased())/pages/\(pageID.uuidString.lowercased()).jpg",
+        sha256Hex: sha256Hex(of: bytes),
+        byteSize: bytes.count,
+        mediaType: "image/jpeg"
+    )
+}
+
 private func savePreset(_ preset: WatermarkPreset, to storage: WatakeFileStorage) async -> Result<Void, Error> {
     do {
         try await storage.saveWatermarkPreset(preset)
+        return .success(())
+    } catch {
+        return .failure(error)
+    }
+}
+
+private func saveRecipient(_ recipient: WatermarkRecipient, to storage: WatakeFileStorage) async -> Result<Void, Error> {
+    do {
+        try await storage.saveWatermarkRecipient(recipient)
         return .success(())
     } catch {
         return .failure(error)
@@ -243,5 +402,10 @@ extension Result where Success == Void, Failure == Error {
     fileprivate var duplicateNameError: WatermarkPresetStoreError? {
         guard case .failure(let error) = self else { return nil }
         return error as? WatermarkPresetStoreError
+    }
+
+    fileprivate var duplicateRecipientError: WatermarkCopyStoreError? {
+        guard case .failure(let error) = self else { return nil }
+        return error as? WatermarkCopyStoreError
     }
 }
