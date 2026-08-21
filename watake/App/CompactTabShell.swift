@@ -24,6 +24,11 @@ struct CompactTabShell: View {
                     destination: router.selection,
                     library: library,
                     onOpenSearchResult: openSearchResult,
+                    onOpenCopies: { router.selection = .copies },
+                    onOpenOriginal: { document in
+                        library.openDocument(document)
+                        router.selection = .library
+                    },
                     onCaptureSaved: openSavedFolder
                 )
             }

@@ -34,6 +34,10 @@ actor InMemoryAssetStore: DocumentAssetStore {
     func removeAsset(_ reference: AssetReference) async throws {
         storage.removeValue(forKey: reference.relativePath)
     }
+
+    func allPaths() -> Set<String> {
+        Set(storage.keys)
+    }
 }
 
 enum TestAssetStoreError: Error {

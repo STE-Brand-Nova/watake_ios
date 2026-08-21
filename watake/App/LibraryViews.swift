@@ -7,10 +7,22 @@ import UIKit
 import WatakeDomain
 
 struct LibraryView: View {
+    private enum FilesFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case recent = "Recent"
+        case folders = "Folders"
+        var id: Self {
+            self
+        }
+    }
+
     @Bindable var store: LibraryStore
+    let onOpenCopies: () -> Void
     @State private var isCreatingFolder = false
     @State private var editingFolder: Folder?
     @State private var isManagingTags = false
+    @State private var isSearching = false
+    @State private var filter: FilesFilter = .all
 
     private var selectedFolder: Folder? {
         guard let selectedFolderID = store.selectedFolderID else { return nil }
@@ -22,18 +34,18 @@ struct LibraryView: View {
             if store.isLoading && store.folders.isEmpty {
                 ProgressView("Loading archive")
             } else if let selectedFolder {
-                FolderDocumentsView(store: store, folder: selectedFolder)
-            } else if store.activeFolders.isEmpty {
+                FolderDocumentsView(store: store, folder: selectedFolder, onOpenCopies: onOpenCopies)
+            } else if store.activeFolders.isEmpty && store.activeDocuments.isEmpty {
                 WatakeEmptyState(
                     systemImage: "folder.badge.plus", title: "Your archive is empty.",
                     message: "Create your first folder to start organizing scans."
                 )
             } else {
-                folderGrid
+                filesOverview
             }
         }
         .background(WatakeColor.surface.base)
-        .navigationTitle(selectedFolder?.name ?? "Folders")
+        .navigationTitle(selectedFolder?.name ?? "Files")
         .toolbar {
             if selectedFolder != nil {
                 ToolbarItem(placement: .topBarLeading) {
@@ -50,11 +62,25 @@ struct LibraryView: View {
                 }
                 .accessibilityLabel("Library actions")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { isSearching = true } label: { Label("Search Files", systemImage: "magnifyingglass") }
+            }
         }
         .task { await store.load() }
         .sheet(isPresented: $isCreatingFolder) { FolderEditor(store: store) }
         .sheet(item: $editingFolder) { folder in FolderEdit(store: store, folder: folder) }
         .sheet(isPresented: $isManagingTags) { TagManager(store: store) }
+        .sheet(isPresented: $isSearching) {
+            NavigationStack {
+                SearchView(model: store.searchModel, onOpen: { result in
+                    store.openSearchResult(result)
+                    isSearching = false
+                }, onDismiss: {
+                    store.resetSearch()
+                    isSearching = false
+                })
+            }
+        }
         .safeAreaInset(edge: .top, spacing: WatakeSpacing.sm) {
             if let undo = store.pendingTrashUndo {
                 TrashUndoBanner {
@@ -65,6 +91,67 @@ struct LibraryView: View {
         }
         .alert("Could not complete change", isPresented: errorBinding) { Button("OK") {} } message: {
             Text(store.errorMessage ?? "Try again.")
+        }
+    }
+
+    private var filesOverview: some View {
+        VStack(spacing: 0) {
+            Picker("File view", selection: $filter) {
+                ForEach(FilesFilter.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, WatakeSpacing.md)
+            .padding(.bottom, WatakeSpacing.sm)
+
+            switch filter {
+            case .all:
+                documentList(store.activeDocuments.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                })
+            case .recent:
+                documentList(Array(store.activeDocuments.sorted { $0.updatedAt > $1.updatedAt }.prefix(20)))
+            case .folders:
+                folderGrid
+            }
+        }
+    }
+
+    private func documentList(_ documents: [StoredDocument]) -> some View {
+        List(documents) { document in
+            Button { store.openDocument(document) } label: {
+                HStack(spacing: WatakeSpacing.md) {
+                    Image(systemName: "doc.text.fill")
+                        .foregroundStyle(WatakeColor.brand.primary)
+                        .frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: WatakeSpacing.xxs) {
+                        Text(document.name)
+                            .watakeType(.bodyEmphasis)
+                            .foregroundStyle(WatakeColor.text.primary)
+                        let copies = store.copyCount(for: document.id)
+                        let folderName = store.folder(for: document.folderId)?.name ?? "Files"
+                        let pageLabel = "\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")"
+                        let copyLabel = "\(copies) cop\(copies == 1 ? "y" : "ies")"
+                        Text("\(folderName) · \(pageLabel) · \(copyLabel)")
+                            .watakeType(.caption)
+                            .foregroundStyle(WatakeColor.text.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").foregroundStyle(WatakeColor.text.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(document.name), \(document.pages.count) pages, \(store.copyCount(for: document.id)) watermarked copies")
+        }
+        .listStyle(.plain)
+        .overlay {
+            if documents.isEmpty {
+                WatakeEmptyState(
+                    systemImage: filter == .recent ? "clock" : "doc",
+                    title: filter == .recent ? "No recent files." : "No original documents yet.",
+                    message: "Capture or import a document to see it here."
+                )
+            }
         }
     }
 
@@ -80,7 +167,11 @@ struct LibraryView: View {
                         Button {
                             store.openFolder(id: folder.id)
                         } label: {
-                            FolderCard(folder: folder, count: store.documents(in: folder).count)
+                            FolderSummaryCard(
+                                folder: folder,
+                                originals: store.documents(in: folder).count,
+                                copies: store.copyCount(in: folder)
+                            )
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -103,60 +194,39 @@ struct LibraryView: View {
     }
 }
 
-private struct TrashUndoBanner: View {
-    let undo: () -> Void
-
-    var body: some View {
-        HStack(spacing: WatakeSpacing.md) {
-            Text("Moved to Trash")
-                .watakeType(.bodyEmphasis)
-                .foregroundStyle(WatakeColor.text.primary)
-            Spacer(minLength: 0)
-            Button("Undo", action: undo)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel("Undo move to Trash")
-                .accessibilityHint("Restores the most recently deleted item")
-        }
-        .padding(.horizontal, WatakeSpacing.md)
-        .background(WatakeColor.surface.raised)
-        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.md))
-        .overlay {
-            RoundedRectangle(cornerRadius: WatakeRadius.md)
-                .stroke(WatakeColor.border.subtle, lineWidth: 1)
-        }
-        .padding(.horizontal, WatakeSpacing.md)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-private struct FolderCard: View {
+private struct FolderSummaryCard: View {
     let folder: Folder
-    let count: Int
+    let originals: Int
+    let copies: Int
     var body: some View {
         WatakeCard {
             HStack(alignment: .top, spacing: WatakeSpacing.sm) {
                 Image(systemName: "folder.fill").foregroundStyle(tagColor(for: folder.colorHex)).font(.title2)
                 VStack(alignment: .leading, spacing: WatakeSpacing.xxs) {
                     Text(folder.name).watakeType(.bodyEmphasis).foregroundStyle(WatakeColor.text.primary).lineLimit(2)
-                    Text("\(count) document\(count == 1 ? "" : "s")").watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                    Text("\(originals) original\(originals == 1 ? "" : "s") · \(copies) cop\(copies == 1 ? "y" : "ies")")
+                        .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
                 }
                 Spacer(minLength: 0)
             }
             .frame(minHeight: 44, alignment: .leading)
         }
-        .accessibilityLabel("\(folder.name), \(count) documents")
+        .accessibilityLabel("\(folder.name), \(originals) originals, \(copies) watermarked copies")
     }
 }
 
 private struct FolderDocumentsView: View {
     @Bindable var store: LibraryStore
     let folder: Folder
+    let onOpenCopies: () -> Void
     @State private var editingDocument: StoredDocument?
     @State private var isAssigningTags = false
     @State private var movingDocument: StoredDocument?
     @State private var exportModel: ExportFeatureModel?
     @State private var isSelecting = false
     @State private var selectedDocumentIDs: Set<UUID> = []
+    @State private var watermarkPresentation: WatermarkFlowPresentation?
+    @State private var viewerWatermarkTransition = ViewerWatermarkTransition()
 
     var body: some View {
         GeometryReader { proxy in
@@ -166,6 +236,7 @@ private struct FolderDocumentsView: View {
                     DocumentViewerView(
                         model: store.documentViewerModel(for: documentID),
                         presetStore: store.watermarkPresetStore,
+                        onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: false) },
                         onClose: { store.closeDocument() }
                     )
                     .toolbar {
@@ -177,12 +248,16 @@ private struct FolderDocumentsView: View {
                     documentBrowser(width: proxy.size.width)
                 }
             }
-            .fullScreenCover(isPresented: compactViewerPresented(isCompact: isCompact)) {
+            .fullScreenCover(
+                isPresented: compactViewerPresented(isCompact: isCompact),
+                onDismiss: presentPendingViewerWatermark
+            ) {
                 if let documentID = store.selectedDocumentID {
                     NavigationStack {
                         DocumentViewerView(
                             model: store.documentViewerModel(for: documentID),
                             presetStore: store.watermarkPresetStore,
+                            onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: true) },
                             onClose: { store.closeDocument() }
                         )
                         .toolbar {
@@ -193,9 +268,14 @@ private struct FolderDocumentsView: View {
                     }
                 }
             }
+            .fullScreenCover(item: $watermarkPresentation) { presentation in
+                watermarkFlow(for: presentation)
+            }
         }
     }
+}
 
+extension FolderDocumentsView {
     private func documentBrowser(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             TagFilterRow(store: store)
@@ -227,6 +307,38 @@ private struct FolderDocumentsView: View {
         }
     }
 
+    private func watermarkFlow(for presentation: WatermarkFlowPresentation) -> some View {
+        WatermarkCreationFlowView(
+            documents: presentation.documents,
+            recipients: store.watermarkRecipients,
+            sourceImageData: presentation.sourceImageData,
+            presetStore: store.watermarkPresetStore,
+            assetStore: store.watermarkAssetStore,
+            create: { recipient, purpose, config, imageData, progress in
+                await store.createWatermarkedCopies(
+                    request: WatermarkCopyRequest(
+                        documentIDs: Set(presentation.documents.map(\.id)),
+                        recipientName: recipient,
+                        purpose: purpose,
+                        templateConfig: config,
+                        imageData: imageData
+                    ),
+                    progress: progress
+                )
+            },
+            share: { issuance in await store.exportURLs(for: issuance) },
+            onViewCopies: {
+                store.cleanupTemporaryExports()
+                watermarkPresentation = nil
+                onOpenCopies()
+            },
+            onDismiss: {
+                store.cleanupTemporaryExports()
+                watermarkPresentation = nil
+            }
+        )
+    }
+
     private var selectionActionBar: some View {
         WatakeStickyActionBar {
             HStack {
@@ -248,12 +360,25 @@ private struct FolderDocumentsView: View {
                 .disabled(selectedDocumentIDs.isEmpty)
                 .buttonStyle(.borderedProminent)
                 .tint(WatakeColor.brand.primary)
+
+                Button("Watermark (\(selectedDocumentIDs.count))") {
+                    startWatermarking(documentIDs: selectedDocumentIDs)
+                }
+                .disabled(selectedDocumentIDs.isEmpty)
             }
         }
     }
 
     @ToolbarContentBuilder
     private var documentBrowserToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                startWatermarking(documentIDs: Set(store.filteredDocuments(in: folder).map(\.id)))
+            } label: {
+                Label("Watermark All", systemImage: "paintbrush")
+            }
+            .disabled(store.filteredDocuments(in: folder).isEmpty)
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button(isSelecting ? "Done" : "Select") {
                 isSelecting.toggle()
@@ -318,6 +443,10 @@ private struct FolderDocumentsView: View {
                                 Text(document.name).foregroundStyle(WatakeColor.text.primary)
                                 Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
                                     .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                                Text(
+                                    "\(store.copyCount(for: document.id)) watermarked cop\(store.copyCount(for: document.id) == 1 ? "y" : "ies")"
+                                )
+                                .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
                                 if !document.tagIds.isEmpty {
                                     DocumentTagChips(store: store, tagIds: document.tagIds)
                                 }
@@ -348,6 +477,34 @@ private struct FolderDocumentsView: View {
                 WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
             }
         }
+    }
+
+    private func startWatermarking(documentIDs: Set<UUID>) {
+        let documents = store.documents(forIDs: documentIDs)
+        guard let first = documents.first else { return }
+        Task {
+            guard let data = await store.watermarkPreviewData(for: first) else {
+                store.errorMessage = "This document preview could not be loaded."
+                return
+            }
+            watermarkPresentation = WatermarkFlowPresentation(documents: documents, sourceImageData: data)
+        }
+    }
+
+    private func requestWatermarking(documentID: UUID, viewerIsCompact: Bool) {
+        if let immediate = viewerWatermarkTransition.request(
+            documentID: documentID,
+            viewerIsPresentedModally: viewerIsCompact
+        ) {
+            startWatermarking(documentIDs: immediate)
+        } else {
+            store.closeDocument()
+        }
+    }
+
+    private func presentPendingViewerWatermark() {
+        guard let documentIDs = viewerWatermarkTransition.takePendingAfterViewerDismissal() else { return }
+        startWatermarking(documentIDs: documentIDs)
     }
 
     private func documentGrid(width: CGFloat) -> some View {

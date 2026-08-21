@@ -357,6 +357,57 @@ struct DomainValidationTests {
     }
 }
 
+extension DomainValidationTests {
+    @Test("legacy issuance and rendition metadata decode into Unassigned compatibility values")
+    func legacyWatermarkMetadataDecodes() throws {
+        let issuanceID = fixedUUID(41)
+        let rendition = WatermarkRendition(
+            id: fixedUUID(42),
+            documentId: fixedUUID(2),
+            issuanceId: issuanceID,
+            originalNameSnapshot: "Document",
+            version: 3,
+            config: makeWatermarkConfig(),
+            pages: [RenditionPage(
+                id: fixedUUID(43),
+                pageId: fixedUUID(4),
+                index: 0,
+                watermarked: makeAsset(relativePath: "renditions/legacy/page.jpg")
+            )],
+            createdAt: fixedDate,
+            deletedAt: fixedDate
+        )
+        let issuance = WatermarkIssuance(
+            id: issuanceID,
+            recipientId: fixedUUID(44),
+            recipientNameSnapshot: "Acme",
+            templateConfig: makeWatermarkConfig(),
+            renditions: [rendition],
+            createdAt: fixedDate
+        )
+        let encoded = try WatakeContractCoding.makeJSONEncoder().encode(issuance)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "recipientId")
+        object.removeValue(forKey: "recipientNameSnapshot")
+        var renditions = try #require(object["renditions"] as? [[String: Any]])
+        renditions[0].removeValue(forKey: "issuanceId")
+        renditions[0].removeValue(forKey: "originalNameSnapshot")
+        renditions[0].removeValue(forKey: "version")
+        renditions[0].removeValue(forKey: "deletedAt")
+        object["renditions"] = renditions
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try WatakeContractCoding.makeJSONDecoder().decode(WatermarkIssuance.self, from: legacyData)
+
+        #expect(decoded.recipientId == nil)
+        #expect(decoded.recipientNameSnapshot == "Unassigned")
+        #expect(decoded.renditions[0].issuanceId == nil)
+        #expect(decoded.renditions[0].originalNameSnapshot == "Unassigned document")
+        #expect(decoded.renditions[0].version == 1)
+        #expect(decoded.renditions[0].deletedAt == nil)
+    }
+}
+
 private struct KeyModels: Codable, Equatable {
     let folder: Folder
     let document: StoredDocument

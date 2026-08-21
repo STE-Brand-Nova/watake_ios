@@ -34,7 +34,7 @@ public struct WatermarkPresetLibraryItem: Identifiable, Equatable, Sendable {
     }
 
     public var isAvailable: Bool {
-        preset.config.image == nil
+        true
     }
 
     public var enabledTextLayerTitles: [String] {
@@ -48,7 +48,9 @@ public struct WatermarkPresetLibraryItem: Identifiable, Equatable, Sendable {
 
     public var accessibilitySummary: String {
         let layers = enabledTextLayerTitles
-        return layers.isEmpty ? "No enabled text layers" : "Enabled text layers: \(layers.joined(separator: ", "))"
+        let image = preset.config.image?.enabled == true ? ["Image"] : []
+        let enabled = layers + image
+        return enabled.isEmpty ? "No enabled layers" : "Enabled layers: \(enabled.joined(separator: ", "))"
     }
 }
 

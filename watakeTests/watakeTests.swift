@@ -9,6 +9,7 @@ import DocumentSearchFeature
 import Foundation
 import Security
 import Testing
+import UIKit
 import WatakeDomain
 @testable import watake
 
@@ -35,16 +36,16 @@ struct AppDestinationTests {
     }
 
     @Test func stableLabels() {
-        #expect(AppDestination.library.label == "Folders")
+        #expect(AppDestination.library.label == "Files")
         #expect(AppDestination.capture.label == "Capture")
-        #expect(AppDestination.search.label == "Search")
+        #expect(AppDestination.copies.label == "Copies")
         #expect(AppDestination.trash.label == "Trash")
         #expect(AppDestination.settings.label == "Settings")
     }
 
     @Test func captureIsSecondInSidebarOrder() {
         let order = AppDestination.allCases
-        #expect(order == [.library, .capture, .search, .trash, .settings])
+        #expect(order == [.library, .capture, .copies, .trash, .settings])
     }
 
     @Test func captureIsCenteredInCompactTabOrder() {
@@ -64,10 +65,31 @@ struct AppRouterTests {
 
     @Test func selectionPreservedAcrossReads() {
         let router = AppRouter()
-        router.selection = .search
-        #expect(router.selection == .search)
+        router.selection = .copies
+        #expect(router.selection == .copies)
         router.selection = .trash
         #expect(router.selection == .trash)
+    }
+}
+
+@MainActor
+struct ViewerWatermarkTransitionTests {
+    @Test func compactViewerDefersWatermarkUntilViewerDismissal() {
+        let documentID = UUID()
+        var transition = ViewerWatermarkTransition()
+
+        #expect(transition.request(documentID: documentID, viewerIsPresentedModally: true) == nil)
+        #expect(transition.pendingDocumentIDs == [documentID])
+        #expect(transition.takePendingAfterViewerDismissal() == [documentID])
+        #expect(transition.pendingDocumentIDs == nil)
+    }
+
+    @Test func inlineViewerPresentsWatermarkImmediately() {
+        let documentID = UUID()
+        var transition = ViewerWatermarkTransition()
+
+        #expect(transition.request(documentID: documentID, viewerIsPresentedModally: false) == [documentID])
+        #expect(transition.takePendingAfterViewerDismissal() == nil)
     }
 }
 
@@ -104,16 +126,15 @@ struct CaptureIntegrationTests {
 
 @MainActor
 struct SearchRoutingTests {
-    @Test func leavingSearchDestinationResetsVisibleQueryAndState() {
+    @Test func dismissingContextualSearchResetsVisibleQueryAndState() {
         let router = AppRouter()
         let store = LibraryStore()
-        router.selection = .search
+        router.selection = .library
         store.searchModel.updateQuery("synthetic")
 
         #expect(store.searchModel.query == "synthetic")
         #expect(store.searchModel.state == .loading)
 
-        router.selection = .library
         store.resetSearch()
 
         #expect(router.selection == .library)
@@ -411,6 +432,180 @@ struct TrashRestorePresentationTests {
         #expect(TrashRetentionText.message(daysRemaining: 30) == "30 days remaining")
         #expect(TrashRetentionText.message(daysRemaining: 1) == "1 day remaining")
         #expect(TrashRetentionText.message(daysRemaining: 0) == "Expires today")
+    }
+}
+
+@MainActor
+struct WatermarkCopyLifecycleTests {
+    private struct Fixture {
+        let folder: Folder
+        let documents: [StoredDocument]
+        let issuance: WatermarkIssuance
+    }
+
+    private func withIsolatedStore(_ body: (LibraryStore) async throws -> Void) async throws {
+        let id = UUID().uuidString
+        let subdirectory = "WatakeCopyLifecycleTests-\(id)"
+        let keychainService = "com.watake.tests.copies.\(id)"
+        let store = LibraryStore(storageSubdirectory: subdirectory, keychainService: keychainService)
+        do {
+            try await body(store)
+        } catch {
+            eraseIsolatedStore(subdirectory: subdirectory, keychainService: keychainService)
+            throw error
+        }
+        eraseIsolatedStore(subdirectory: subdirectory, keychainService: keychainService)
+    }
+
+    private func eraseIsolatedStore(subdirectory: String, keychainService: String) {
+        if let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: base.appendingPathComponent(subdirectory, isDirectory: true))
+        }
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService
+        ] as CFDictionary)
+    }
+
+    @Test func copyTrashAndRestoreRoundTripsDeletedTimestamp() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 1)
+            let rendition = try #require(fixture.issuance.renditions.first)
+            let renderedAsset = try #require(rendition.pages.first?.watermarked)
+
+            #expect(await store.trashWatermarkRendition(rendition))
+            let trashed = try #require(store.issuance(containing: rendition.id)?.renditions.first)
+            #expect(trashed.deletedAt != nil)
+
+            #expect(await store.restoreWatermarkRendition(trashed))
+            let restored = try #require(store.issuance(containing: rendition.id)?.renditions.first)
+            #expect(restored.deletedAt == nil)
+
+            #expect(await store.trashWatermarkRendition(restored))
+            let retrash = try #require(store.issuance(containing: rendition.id)?.renditions.first)
+            #expect(await store.deletePermanently(retrash))
+            #expect(store.issuance(containing: rendition.id) == nil)
+            let assetWasRemoved = await assetIsMissing(renderedAsset, store: store)
+            #expect(assetWasRemoved)
+        }
+    }
+
+    @Test func permanentDocumentDeleteCascadesCopyMetadataAndAssets() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 1)
+            let document = try #require(fixture.documents.first)
+            let renderedAsset = try #require(fixture.issuance.renditions.first?.pages.first?.watermarked)
+
+            #expect(await store.trashDocument(document))
+            let trashed = try #require(store.documentIncludingTrash(id: document.id))
+            #expect(await store.deletePermanently(trashed))
+
+            #expect(store.documentIncludingTrash(id: document.id) == nil)
+            #expect(store.watermarkIssuances.isEmpty)
+            #expect(await assetIsMissing(renderedAsset, store: store))
+        }
+    }
+
+    @Test func permanentFolderDeleteCascadesEveryChildCopy() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 2)
+
+            #expect(await store.trashFolder(fixture.folder))
+            let trashedFolder = try #require(store.folder(for: fixture.folder.id))
+            #expect(await store.deletePermanently(trashedFolder))
+
+            #expect(store.folder(for: fixture.folder.id) == nil)
+            #expect(store.watermarkIssuances.isEmpty)
+            #expect(fixture.documents.allSatisfy { store.documentIncludingTrash(id: $0.id) == nil })
+        }
+    }
+
+    @Test func copyPreviewIsBoundedAndExportSessionsAreReclaimed() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 1)
+            let rendition = try #require(fixture.issuance.renditions.first)
+            let previewData = try #require(await store.watermarkRenditionPreviewData(rendition, maxPixelSize: 64))
+            let preview = try #require(UIImage(data: previewData))
+            #expect(max(preview.size.width * preview.scale, preview.size.height * preview.scale) <= 64)
+
+            let firstExport = try #require(await store.exportURL(
+                for: rendition,
+                recipientName: fixture.issuance.recipientNameSnapshot
+            ))
+            let firstDirectory = firstExport.deletingLastPathComponent()
+            #expect(FileManager.default.fileExists(atPath: firstExport.path))
+
+            let secondExport = try #require(await store.exportURL(
+                for: rendition,
+                recipientName: fixture.issuance.recipientNameSnapshot
+            ))
+            #expect(!FileManager.default.fileExists(atPath: firstDirectory.path))
+            #expect(FileManager.default.fileExists(atPath: secondExport.path))
+
+            let secondDirectory = secondExport.deletingLastPathComponent()
+            store.cleanupTemporaryExports()
+            #expect(!FileManager.default.fileExists(atPath: secondDirectory.path))
+        }
+    }
+
+    private func makeCopyFixture(
+        store: LibraryStore,
+        documentCount: Int
+    ) async throws -> Fixture {
+        let createdFolder = await store.createFolder(
+            name: "Watermark lifecycle",
+            colorHex: ArchiveTagPalette.colors[8]
+        )
+        let folder = try #require(createdFolder)
+        let imageData = syntheticPNGData()
+        for index in 0 ..< documentCount {
+            let saved = await store.save(
+                pages: [ImportedPage(sourceData: imageData)],
+                grouping: .oneDocument,
+                folder: folder,
+                name: "Document \(index + 1)"
+            )
+            #expect(saved)
+        }
+        let documents = store.documents(in: folder)
+        let config = WatermarkConfig(
+            automatic: false,
+            body: WatermarkTextLayer(
+                text: "For {recipient}", enabled: true, fontName: "Helvetica", sizePreset: .medium,
+                colorHex: "#0B1220", rotation: 0, opacity: 0.6
+            ),
+            globalPosition: .center,
+            globalRotation: 0,
+            globalOpacity: 1
+        )
+        let createdIssuance = await store.createWatermarkedCopies(
+            request: WatermarkCopyRequest(
+                documentIDs: Set(documents.map(\.id)),
+                recipientName: "Acme",
+                purpose: nil,
+                templateConfig: config,
+                imageData: nil
+            ),
+            progress: { _, _ in }
+        )
+        let issuance = try #require(createdIssuance)
+        return Fixture(folder: folder, documents: documents, issuance: issuance)
+    }
+
+    private func syntheticPNGData() -> Data {
+        UIGraphicsImageRenderer(size: CGSize(width: 120, height: 160)).pngData { context in
+            UIColor.white.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 120, height: 160))
+        }
+    }
+
+    private func assetIsMissing(_ asset: AssetReference, store: LibraryStore) async -> Bool {
+        do {
+            _ = try await store.watermarkAssetStore.readAsset(asset)
+            return false
+        } catch {
+            return true
+        }
     }
 }
 
