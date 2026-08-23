@@ -68,7 +68,6 @@
                 doneButton
                     .padding(.horizontal, WatakeSpacing.md)
                     .padding(.vertical, WatakeSpacing.xs)
-                    .background(WatakeColor.surface.base)
             }
         }
 
@@ -339,6 +338,10 @@
                     .accessibilityLabel("\(kind.title) color hex")
                     .accessibilityValue(model.colorInput(for: kind))
                     .accessibilityHint("Enter a six-digit hex color. Invalid values keep the last safe preview color.")
+                ColorPicker("Pick custom color", selection: customColorBinding, supportsOpacity: false)
+                    .frame(minHeight: 44)
+                    .accessibilityLabel("Pick custom color for \(kind.title)")
+                    .accessibilityHint("Opens the system color picker and updates the watermark preview")
             }
         }
 
@@ -414,6 +417,16 @@
                 set: { color in
                     guard let color else { return }
                     model.setSemanticColor(color, for: kind)
+                }
+            )
+        }
+
+        private var customColorBinding: Binding<Color> {
+            Binding(
+                get: { Color(watermarkHex: layer.colorHex) },
+                set: { color in
+                    guard let hex = color.watermarkHexRGB else { return }
+                    model.setColorInput(hex, for: kind)
                 }
             )
         }
@@ -624,7 +637,7 @@
                 ForEach(layers) { previewLayer in
                     Text(previewLayer.layer.text)
                         .font(font(for: previewLayer.layer))
-                        .foregroundStyle(Color(hex: previewLayer.layer.colorHex))
+                        .foregroundStyle(Color(watermarkHex: previewLayer.layer.colorHex))
                         .multilineTextAlignment(.center)
                         .rotationEffect(.degrees(previewLayer.layer.rotation))
                         .opacity(previewLayer.layer.opacity)
@@ -719,7 +732,7 @@
                     Image(uiImage: image)
                         .resizable()
                         .renderingMode(.template)
-                        .foregroundStyle(Color(hex: tintHex))
+                        .foregroundStyle(Color(watermarkHex: tintHex))
                         .imageLayout(base: base, layer: layer)
                 } else {
                     Image(uiImage: image)
@@ -752,17 +765,4 @@
         }
     }
 
-    extension Color {
-        fileprivate init(hex: String) {
-            let digits = hex.dropFirst(hex.hasPrefix("#") ? 1 : 0)
-            let value = UInt64(digits, radix: 16) ?? 0
-            self.init(
-                .sRGB,
-                red: Double((value >> 16) & 0xFF) / 255,
-                green: Double((value >> 8) & 0xFF) / 255,
-                blue: Double(value & 0xFF) / 255,
-                opacity: 1
-            )
-        }
-    }
 #endif
