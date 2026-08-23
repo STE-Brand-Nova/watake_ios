@@ -1,4 +1,5 @@
 import CaptureServices
+import DocumentViewerFeature
 import Foundation
 import WatakeDomain
 
@@ -47,6 +48,69 @@ struct ViewerWatermarkTransition: Equatable {
     mutating func takePendingAfterViewerDismissal() -> Set<UUID>? {
         defer { pendingDocumentIDs = nil }
         return pendingDocumentIDs
+    }
+}
+
+enum ViewerCopiesRequest: Equatable {
+    case all
+    case rendition(documentID: UUID, renditionID: UUID)
+}
+
+struct ViewerCopiesTransition: Equatable {
+    private(set) var pendingRequest: ViewerCopiesRequest?
+
+    mutating func request(
+        _ request: ViewerCopiesRequest,
+        viewerIsPresentedModally: Bool
+    ) -> ViewerCopiesRequest? {
+        guard viewerIsPresentedModally else { return request }
+        pendingRequest = request
+        return nil
+    }
+
+    mutating func takePendingAfterViewerDismissal() -> ViewerCopiesRequest? {
+        defer { pendingRequest = nil }
+        return pendingRequest
+    }
+}
+
+struct WatermarkCopyNavigationRequest: Equatable, Sendable {
+    let documentID: UUID
+    let renditionID: UUID
+}
+
+struct ResolvedWatermarkCopyNavigation: Equatable, Sendable {
+    let request: WatermarkCopyNavigationRequest
+    let issuance: WatermarkIssuance
+    let rendition: WatermarkRendition
+}
+
+func makeWatermarkCopySummaryIndex(
+    from issuances: [WatermarkIssuance]
+) -> [UUID: [DocumentWatermarkedCopySummary]] {
+    var index: [UUID: [DocumentWatermarkedCopySummary]] = [:]
+    for issuance in issuances {
+        for rendition in issuance.renditions where rendition.deletedAt == nil {
+            index[rendition.documentId, default: []].append(DocumentWatermarkedCopySummary(
+                id: rendition.id,
+                recipientName: issuance.recipientNameSnapshot,
+                version: rendition.version,
+                createdAt: rendition.createdAt
+            ))
+        }
+    }
+    return index
+}
+
+public struct LibraryExportDocumentLoader: ExportDocumentLoading, Sendable {
+    private let loader: @Sendable (Set<UUID>) async throws -> [StoredDocument]
+
+    public init(loader: @escaping @Sendable (Set<UUID>) async throws -> [StoredDocument]) {
+        self.loader = loader
+    }
+
+    public func documents(ids: Set<UUID>) async throws -> [StoredDocument] {
+        try await loader(ids)
     }
 }
 

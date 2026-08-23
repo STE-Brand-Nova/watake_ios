@@ -206,6 +206,10 @@
                         .accessibilityLabel("Image tint hex")
                         .accessibilityValue(model.tintInput())
                         .accessibilityHint("Enter a six-digit hex color. Invalid values keep the last safe preview color.")
+                    ColorPicker("Pick custom tint", selection: customTintBinding, supportsOpacity: false)
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("Pick custom image tint")
+                        .accessibilityHint("Opens the system color picker and updates the watermark preview")
                 }
             }
         }
@@ -282,6 +286,16 @@
                 set: { color in
                     guard let color else { return }
                     model.setImageSemanticTint(color)
+                }
+            )
+        }
+
+        private var customTintBinding: Binding<Color> {
+            Binding(
+                get: { Color(watermarkHex: layer.tintHex ?? WatermarkSemanticColor.ink.hex) },
+                set: { color in
+                    guard let hex = color.watermarkHexRGB else { return }
+                    model.setImageTintInput(hex)
                 }
             )
         }

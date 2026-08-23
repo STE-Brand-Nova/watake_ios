@@ -32,6 +32,8 @@ final class LibraryStore {
     private(set) var tags: [Tag] = []
     private(set) var watermarkRecipients: [WatermarkRecipient] = []
     private(set) var watermarkIssuances: [WatermarkIssuance] = []
+    private var watermarkCopySummariesByDocumentID: [UUID: [DocumentWatermarkedCopySummary]] = [:]
+    private(set) var requestedWatermarkCopy: WatermarkCopyNavigationRequest?
     var errorMessage: String?
     var isLoading = false
     private var isPurging = false
@@ -140,6 +142,37 @@ extension LibraryStore {
         activeWatermarkRenditions.count { $0.documentId == documentID }
     }
 
+    func watermarkCopySummaries(for documentID: UUID) -> [DocumentWatermarkedCopySummary] {
+        watermarkCopySummariesByDocumentID[documentID] ?? []
+    }
+
+    func requestOpenWatermarkRendition(documentID: UUID, renditionID: UUID) {
+        requestedWatermarkCopy = WatermarkCopyNavigationRequest(
+            documentID: documentID,
+            renditionID: renditionID
+        )
+    }
+
+    func resolveRequestedWatermarkCopy() -> ResolvedWatermarkCopyNavigation? {
+        guard let request = requestedWatermarkCopy,
+              let issuance = issuance(containing: request.renditionID),
+              let rendition = issuance.renditions.first(where: {
+                  $0.id == request.renditionID &&
+                      $0.documentId == request.documentID &&
+                      $0.deletedAt == nil
+              }) else { return nil }
+        return ResolvedWatermarkCopyNavigation(
+            request: request,
+            issuance: issuance,
+            rendition: rendition
+        )
+    }
+
+    func consumeRequestedWatermarkCopy(matching request: WatermarkCopyNavigationRequest) {
+        guard requestedWatermarkCopy == request else { return }
+        requestedWatermarkCopy = nil
+    }
+
     func copyCount(in folder: Folder) -> Int {
         let ids = Set(documents(in: folder).map(\.id))
         return activeWatermarkRenditions.count { ids.contains($0.documentId) }
@@ -206,6 +239,9 @@ extension LibraryStore {
             tags = try await storage.tags()
             watermarkRecipients = try await storage.watermarkRecipients()
             watermarkIssuances = try await storage.watermarkIssuances()
+            watermarkCopySummariesByDocumentID = makeWatermarkCopySummaryIndex(
+                from: watermarkIssuances
+            )
         } catch {
             errorMessage = "Archive could not load. Try again."
         }
@@ -896,17 +932,5 @@ extension LibraryStore {
             errorMessage = "Could not save changes. Your original pages are unchanged."
             return false
         }
-    }
-}
-
-public struct LibraryExportDocumentLoader: ExportDocumentLoading, Sendable {
-    private let loader: @Sendable (Set<UUID>) async throws -> [StoredDocument]
-
-    public init(loader: @escaping @Sendable (Set<UUID>) async throws -> [StoredDocument]) {
-        self.loader = loader
-    }
-
-    public func documents(ids: Set<UUID>) async throws -> [StoredDocument] {
-        try await loader(ids)
     }
 }

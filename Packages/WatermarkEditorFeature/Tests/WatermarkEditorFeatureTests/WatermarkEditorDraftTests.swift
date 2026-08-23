@@ -49,6 +49,11 @@ struct WatermarkEditorDraftTests {
         #expect(layer.colorHex == "#1F4FEB")
     }
 
+    @Test func colorPickerComponentsProduceNormalizedHex() {
+        #expect(WatermarkHexColor.rgb(red: 1, green: 0.5, blue: 0) == "#FF8000")
+        #expect(WatermarkHexColor.rgb(red: 2, green: -1, blue: .nan) == "#FF0000")
+    }
+
     @Test func fontCatalogUsesVerifiedSerializableFamilyNames() {
         #expect(!WatermarkFontCatalog.supportedFontNames.contains("SF Pro"))
         #expect(WatermarkFontCatalog.sanitized("SF Pro") == WatermarkFontCatalog.defaultFontName)

@@ -6,6 +6,7 @@
 import ArchiveServices
 import CoreGraphics
 import DocumentSearchFeature
+import DocumentViewerFeature
 import Foundation
 import Security
 import Testing
@@ -89,6 +90,31 @@ struct ViewerWatermarkTransitionTests {
         var transition = ViewerWatermarkTransition()
 
         #expect(transition.request(documentID: documentID, viewerIsPresentedModally: false) == [documentID])
+        #expect(transition.takePendingAfterViewerDismissal() == nil)
+    }
+}
+
+@MainActor
+struct ViewerCopiesTransitionTests {
+    @Test func compactViewerDefersCopyUntilViewerDismissal() {
+        let documentID = UUID()
+        let renditionID = UUID()
+        var transition = ViewerCopiesTransition()
+        let request = ViewerCopiesRequest.rendition(
+            documentID: documentID,
+            renditionID: renditionID
+        )
+
+        #expect(transition.request(request, viewerIsPresentedModally: true) == nil)
+        #expect(transition.pendingRequest == request)
+        #expect(transition.takePendingAfterViewerDismissal() == request)
+        #expect(transition.pendingRequest == nil)
+    }
+
+    @Test func inlineViewerOpensCopiesImmediately() {
+        var transition = ViewerCopiesTransition()
+
+        #expect(transition.request(.all, viewerIsPresentedModally: false) == .all)
         #expect(transition.takePendingAfterViewerDismissal() == nil)
     }
 }
@@ -487,6 +513,51 @@ struct WatermarkCopyLifecycleTests {
             #expect(store.issuance(containing: rendition.id) == nil)
             let assetWasRemoved = await assetIsMissing(renderedAsset, store: store)
             #expect(assetWasRemoved)
+        }
+    }
+
+    @Test func copySummariesFilterByDocumentAndActiveState() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 2)
+            let firstDocument = try #require(fixture.documents.first)
+            let secondDocument = try #require(fixture.documents.last)
+            let firstRendition = try #require(
+                fixture.issuance.renditions.first(where: { $0.documentId == firstDocument.id })
+            )
+
+            #expect(store.watermarkCopySummaries(for: firstDocument.id).map(\.id) == [firstRendition.id])
+            #expect(store.watermarkCopySummaries(for: secondDocument.id).count == 1)
+
+            #expect(await store.trashWatermarkRendition(firstRendition))
+            #expect(store.watermarkCopySummaries(for: firstDocument.id).isEmpty)
+            #expect(store.watermarkCopySummaries(for: secondDocument.id).count == 1)
+        }
+    }
+
+    @Test func requestedCopyRequiresMatchingDocumentAndSurvivesReload() async throws {
+        try await withIsolatedStore { store in
+            let fixture = try await makeCopyFixture(store: store, documentCount: 1)
+            let document = try #require(fixture.documents.first)
+            let rendition = try #require(fixture.issuance.renditions.first)
+
+            store.requestOpenWatermarkRendition(
+                documentID: UUID(),
+                renditionID: rendition.id
+            )
+            #expect(store.resolveRequestedWatermarkCopy() == nil)
+            #expect(store.requestedWatermarkCopy != nil)
+
+            store.requestOpenWatermarkRendition(
+                documentID: document.id,
+                renditionID: rendition.id
+            )
+            await store.load()
+            let resolved = try #require(store.resolveRequestedWatermarkCopy())
+            #expect(resolved.rendition.id == rendition.id)
+            #expect(resolved.rendition.documentId == document.id)
+
+            store.consumeRequestedWatermarkCopy(matching: resolved.request)
+            #expect(store.requestedWatermarkCopy == nil)
         }
     }
 
