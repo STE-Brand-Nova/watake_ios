@@ -16,6 +16,9 @@
         private let presetStore: any WatermarkPresetStore
         private let onClose: (() -> Void)?
         private let onWatermarkRequested: ((UUID) -> Void)?
+        private let watermarkedCopies: [DocumentWatermarkedCopySummary]
+        private let onWatermarkedCopyRequested: ((UUID) -> Void)?
+        private let onViewAllWatermarkedCopies: (() -> Void)?
         @FocusState private var isViewerFocused: Bool
         @State private var watermarkEditor: WatermarkEditorPresentation?
 
@@ -26,11 +29,17 @@
             model: DocumentViewerModel,
             presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
             onWatermarkRequested: ((UUID) -> Void)? = nil,
+            watermarkedCopies: [DocumentWatermarkedCopySummary] = [],
+            onWatermarkedCopyRequested: ((UUID) -> Void)? = nil,
+            onViewAllWatermarkedCopies: (() -> Void)? = nil,
             onClose: (() -> Void)? = nil
         ) {
             self.model = model
             self.presetStore = presetStore
             self.onWatermarkRequested = onWatermarkRequested
+            self.watermarkedCopies = watermarkedCopies
+            self.onWatermarkedCopyRequested = onWatermarkedCopyRequested
+            self.onViewAllWatermarkedCopies = onViewAllWatermarkedCopies
             self.onClose = onClose
         }
 
@@ -98,38 +107,45 @@
         }
 
         private func contentState(_ content: DocumentViewerContent, widthClass: WatakeWidthClass) -> some View {
-            DocumentViewerContentView(content: content, widthClass: widthClass, model: model)
-                .navigationTitle(content.document.name)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            if let onWatermarkRequested {
-                                onWatermarkRequested(content.document.id)
-                                return
-                            }
-                            guard case .loaded(let data) = content.pageAsset else { return }
-                            watermarkEditor = WatermarkEditorPresentation(
-                                sourceImageData: data,
-                                presetStore: presetStore
-                            )
-                        } label: {
-                            Label("Watermark", systemImage: "paintbrush")
+            DocumentViewerContentView(
+                content: content,
+                widthClass: widthClass,
+                model: model,
+                watermarkedCopies: watermarkedCopies,
+                onWatermarkedCopyRequested: onWatermarkedCopyRequested,
+                onViewAllWatermarkedCopies: onViewAllWatermarkedCopies
+            )
+            .navigationTitle(content.document.name)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if let onWatermarkRequested {
+                            onWatermarkRequested(content.document.id)
+                            return
                         }
-                        .disabled(!isPageLoaded(content))
-                        .accessibilityHint("Creates a recipient-based watermarked copy of every page")
+                        guard case .loaded(let data) = content.pageAsset else { return }
+                        watermarkEditor = WatermarkEditorPresentation(
+                            sourceImageData: data,
+                            presetStore: presetStore
+                        )
+                    } label: {
+                        Label("Watermark", systemImage: "paintbrush")
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        if model.ocrState.isExtracting {
-                            Button("Cancel extraction") { model.cancelTextExtraction() }
-                                .accessibilityLabel("Cancel text extraction")
-                        } else {
-                            Button { model.extractText() } label: {
-                                Label("Extract Text", systemImage: "text.viewfinder")
-                            }
-                            .accessibilityHint("Extracts private text from every page on this device")
+                    .disabled(!isPageLoaded(content))
+                    .accessibilityHint("Creates a recipient-based watermarked copy of every page")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if model.ocrState.isExtracting {
+                        Button("Cancel extraction") { model.cancelTextExtraction() }
+                            .accessibilityLabel("Cancel text extraction")
+                    } else {
+                        Button { model.extractText() } label: {
+                            Label("Extract Text", systemImage: "text.viewfinder")
                         }
+                        .accessibilityHint("Extracts private text from every page on this device")
                     }
                 }
+            }
         }
 
         private func isPageLoaded(_ content: DocumentViewerContent) -> Bool {
@@ -188,13 +204,15 @@
         let content: DocumentViewerContent
         let widthClass: WatakeWidthClass
         let model: DocumentViewerModel
+        let watermarkedCopies: [DocumentWatermarkedCopySummary]
+        let onWatermarkedCopyRequested: ((UUID) -> Void)?
+        let onViewAllWatermarkedCopies: (() -> Void)?
 
         var body: some View {
             switch widthClass {
             case .compact:
                 VStack(spacing: 0) {
-                    DocumentPagePreview(content: content, model: model)
-                        .frame(maxHeight: .infinity)
+                    documentDetail
                     DocumentPageRail(content: content, model: model, axis: .horizontal)
                         .frame(height: 96)
                         .background(WatakeColor.surface.raised)
@@ -205,10 +223,30 @@
                         .frame(width: widthClass == .expanded ? 340 : 300)
                         .background(WatakeColor.surface.raised)
                     Divider()
-                    DocumentPagePreview(content: content, model: model)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    documentDetail
                 }
             }
+        }
+
+        private var documentDetail: some View {
+            VStack(spacing: 0) {
+                DocumentPagePreview(content: content, model: model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
+                if !watermarkedCopies.isEmpty {
+                    DocumentWatermarkedCopiesStrip(
+                        copies: watermarkedCopies,
+                        onOpenCopy: { copyID in
+                            onWatermarkedCopyRequested?(copyID)
+                        },
+                        onViewAll: {
+                            onViewAllWatermarkedCopies?()
+                        }
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 #endif

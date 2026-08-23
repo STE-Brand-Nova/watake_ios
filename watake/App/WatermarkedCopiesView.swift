@@ -64,7 +64,10 @@ struct WatermarkedCopiesView: View {
         .background(WatakeColor.surface.base)
         .navigationTitle("Watermarked Copies")
         .searchable(text: $query, prompt: "Recipient, purpose, or original")
-        .task { await store.load() }
+        .task {
+            await store.load()
+            openRequestedCopyIfNeeded()
+        }
         .sheet(item: $selected) { selection in
             CopyDetailView(
                 store: store,
@@ -142,6 +145,15 @@ struct WatermarkedCopiesView: View {
             }
             reissue = ReissuePresentation(selection: selection, document: document, sourceImageData: data)
         }
+    }
+
+    private func openRequestedCopyIfNeeded() {
+        guard let resolved = store.resolveRequestedWatermarkCopy() else { return }
+        selected = CopySelection(
+            rendition: resolved.rendition,
+            issuance: resolved.issuance
+        )
+        store.consumeRequestedWatermarkCopy(matching: resolved.request)
     }
 }
 

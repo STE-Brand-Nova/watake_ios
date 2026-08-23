@@ -227,6 +227,7 @@ private struct FolderDocumentsView: View {
     @State private var selectedDocumentIDs: Set<UUID> = []
     @State private var watermarkPresentation: WatermarkFlowPresentation?
     @State private var viewerWatermarkTransition = ViewerWatermarkTransition()
+    @State private var viewerCopiesTransition = ViewerCopiesTransition()
 
     var body: some View {
         GeometryReader { proxy in
@@ -237,6 +238,16 @@ private struct FolderDocumentsView: View {
                         model: store.documentViewerModel(for: documentID),
                         presetStore: store.watermarkPresetStore,
                         onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: false) },
+                        watermarkedCopies: store.watermarkCopySummaries(for: documentID),
+                        onWatermarkedCopyRequested: {
+                            requestCopies(
+                                .rendition(documentID: documentID, renditionID: $0),
+                                viewerIsCompact: false
+                            )
+                        },
+                        onViewAllWatermarkedCopies: {
+                            requestCopies(.all, viewerIsCompact: false)
+                        },
                         onClose: { store.closeDocument() }
                     )
                     .toolbar {
@@ -250,7 +261,7 @@ private struct FolderDocumentsView: View {
             }
             .fullScreenCover(
                 isPresented: compactViewerPresented(isCompact: isCompact),
-                onDismiss: presentPendingViewerWatermark
+                onDismiss: viewerDidDismiss
             ) {
                 if let documentID = store.selectedDocumentID {
                     NavigationStack {
@@ -258,6 +269,16 @@ private struct FolderDocumentsView: View {
                             model: store.documentViewerModel(for: documentID),
                             presetStore: store.watermarkPresetStore,
                             onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: true) },
+                            watermarkedCopies: store.watermarkCopySummaries(for: documentID),
+                            onWatermarkedCopyRequested: {
+                                requestCopies(
+                                    .rendition(documentID: documentID, renditionID: $0),
+                                    viewerIsCompact: true
+                                )
+                            },
+                            onViewAllWatermarkedCopies: {
+                                requestCopies(.all, viewerIsCompact: true)
+                            },
                             onClose: { store.closeDocument() }
                         )
                         .toolbar {
@@ -507,6 +528,35 @@ extension FolderDocumentsView {
         startWatermarking(documentIDs: documentIDs)
     }
 
+    private func requestCopies(_ request: ViewerCopiesRequest, viewerIsCompact: Bool) {
+        if let immediate = viewerCopiesTransition.request(
+            request,
+            viewerIsPresentedModally: viewerIsCompact
+        ) {
+            openCopies(immediate)
+        } else {
+            store.closeDocument()
+        }
+    }
+
+    private func viewerDidDismiss() {
+        if let request = viewerCopiesTransition.takePendingAfterViewerDismissal() {
+            openCopies(request)
+            return
+        }
+        presentPendingViewerWatermark()
+    }
+
+    private func openCopies(_ request: ViewerCopiesRequest) {
+        if case .rendition(let documentID, let renditionID) = request {
+            store.requestOpenWatermarkRendition(
+                documentID: documentID,
+                renditionID: renditionID
+            )
+        }
+        onOpenCopies()
+    }
+
     private func documentGrid(width: CGFloat) -> some View {
         let ordered = store.filteredDocuments(in: folder)
         return ScrollView {
@@ -620,86 +670,6 @@ extension FolderDocumentsView {
             }
         )
     }
-}
-
-private struct DocumentThumbnail: View {
-    @Bindable var store: LibraryStore
-    let document: StoredDocument
-    @State private var image: UIImage?
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Group {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "doc.text.image")
-                        .foregroundStyle(WatakeColor.text.secondary)
-                }
-            }
-            if document.hasOCRText {
-                OCRBadge()
-            }
-        }
-        .frame(width: 44, height: 44)
-        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
-        .accessibilityHidden(true)
-        .task(id: document.id) {
-            guard let data = await store.thumbnailData(for: document) else { return }
-            image = UIImage(data: data)
-        }
-    }
-}
-
-private struct DocumentGridThumbnail: View {
-    @Bindable var store: LibraryStore
-    let document: StoredDocument
-    @State private var image: UIImage?
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Group {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "doc.text.image")
-                        .foregroundStyle(WatakeColor.text.secondary)
-                }
-            }
-            if document.hasOCRText {
-                OCRBadge()
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
-        .accessibilityHidden(true)
-        .task(id: document.id) {
-            guard let data = await store.thumbnailData(for: document) else { return }
-            image = UIImage(data: data)
-        }
-    }
-}
-
-private struct OCRBadge: View {
-    var body: some View {
-        Text("T")
-            .watakeType(.caption)
-            .foregroundStyle(WatakeColor.text.onPrimary)
-            .padding(WatakeSpacing.xxs)
-            .background(WatakeColor.brand.primary)
-            .clipShape(Capsule())
-            .accessibilityHidden(true)
-    }
-}
-
-private func documentAccessibilityLabel(_ document: StoredDocument) -> String {
-    let OCRSuffix = document.hasOCRText ? ", extracted text available" : ""
-    return "\(document.name), \(document.pages.count) pages\(OCRSuffix)"
 }
 
 private struct FolderEditor: View {
