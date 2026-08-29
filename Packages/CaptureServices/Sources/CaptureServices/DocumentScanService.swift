@@ -28,6 +28,7 @@ public struct ScannedDocumentFactory: Sendable {
             DocumentPage(
                 id: UUID(),
                 index: index,
+                originalIndex: index,
                 source: makeAssetReference(
                     jpegData: page.jpegData,
                     documentID: documentID

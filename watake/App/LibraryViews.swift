@@ -228,6 +228,7 @@ private struct FolderDocumentsView: View {
     @State private var watermarkPresentation: WatermarkFlowPresentation?
     @State private var viewerWatermarkTransition = ViewerWatermarkTransition()
     @State private var viewerCopiesTransition = ViewerCopiesTransition()
+    @State private var viewerDocumentActionTransition = ViewerDocumentActionTransition()
 
     var body: some View {
         GeometryReader { proxy in
@@ -248,6 +249,10 @@ private struct FolderDocumentsView: View {
                         onViewAllWatermarkedCopies: {
                             requestCopies(.all, viewerIsCompact: false)
                         },
+                        onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: false) },
+                        onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: false) },
+                        onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: false) },
+                        onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: false) },
                         onClose: { store.closeDocument() }
                     )
                     .toolbar {
@@ -279,6 +284,10 @@ private struct FolderDocumentsView: View {
                             onViewAllWatermarkedCopies: {
                                 requestCopies(.all, viewerIsCompact: true)
                             },
+                            onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: true) },
+                            onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: true) },
+                            onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: true) },
+                            onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: true) },
                             onClose: { store.closeDocument() }
                         )
                         .toolbar {
@@ -291,6 +300,19 @@ private struct FolderDocumentsView: View {
             }
             .fullScreenCover(item: $watermarkPresentation) { presentation in
                 watermarkFlow(for: presentation)
+            }
+            .sheet(item: $editingDocument) { document in
+                if isAssigningTags {
+                    TagAssignment(store: store, document: document)
+                } else {
+                    DocumentRename(store: store, document: document)
+                }
+            }
+            .sheet(item: $movingDocument) { document in
+                DocumentMove(store: store, document: document)
+            }
+            .sheet(item: $exportModel) { model in
+                ExportReviewView(model: model)
             }
         }
     }
@@ -313,19 +335,6 @@ extension FolderDocumentsView {
             }
         }
         .toolbar { documentBrowserToolbar }
-        .sheet(item: $editingDocument) { document in
-            if isAssigningTags {
-                TagAssignment(store: store, document: document)
-            } else {
-                DocumentRename(store: store, document: document)
-            }
-        }
-        .sheet(item: $movingDocument) { document in
-            DocumentMove(store: store, document: document)
-        }
-        .sheet(item: $exportModel) { model in
-            ExportReviewView(model: model)
-        }
     }
 
     private func watermarkFlow(for presentation: WatermarkFlowPresentation) -> some View {
@@ -544,7 +553,41 @@ extension FolderDocumentsView {
             openCopies(request)
             return
         }
+        if let action = viewerDocumentActionTransition.takePendingAfterViewerDismissal() {
+            performDocumentAction(action)
+            return
+        }
         presentPendingViewerWatermark()
+    }
+
+    private func requestDocumentAction(_ action: ViewerDocumentAction, viewerIsCompact: Bool) {
+        if let immediate = viewerDocumentActionTransition.request(
+            action,
+            viewerIsPresentedModally: viewerIsCompact
+        ) {
+            performDocumentAction(immediate)
+        } else {
+            store.closeDocument()
+        }
+    }
+
+    private func performDocumentAction(_ action: ViewerDocumentAction) {
+        guard let document = store.documents(forIDs: [action.documentID]).first else { return }
+        switch action {
+        case .rename:
+            isAssigningTags = false
+            editingDocument = document
+        case .move:
+            movingDocument = document
+        case .export:
+            exportModel = store.makeExportModel(for: [document.id])
+        case .delete:
+            Task {
+                if await store.trashDocument(document) {
+                    store.closeDocument()
+                }
+            }
+        }
     }
 
     private func openCopies(_ request: ViewerCopiesRequest) {
@@ -669,141 +712,5 @@ extension FolderDocumentsView {
                 }
             }
         )
-    }
-}
-
-private struct FolderEditor: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: LibraryStore
-    @State private var name = ""
-    @State private var color = ArchiveTagPalette.colors[8]
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Folder name", text: $name).textInputAutocapitalization(.words)
-                PalettePicker(selection: $color)
-            }
-            .navigationTitle("New folder")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task {
-                            if await store.createFolder(name: name, colorHex: color) != nil {
-                                dismiss()
-                            }
-                        }
-                    }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-    }
-}
-
-private struct DocumentRename: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: LibraryStore
-    let document: StoredDocument
-    @State private var name = ""
-    var body: some View {
-        NavigationStack {
-            Form { TextField("Document name", text: $name) }
-                .onAppear { name = document.name }
-                .navigationTitle("Rename document")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            Task {
-                                await store.renameDocument(document, name: name)
-                                dismiss()
-                            }
-                        }
-                    }
-                }
-        }
-    }
-}
-
-private struct DocumentMove: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: LibraryStore
-    let document: StoredDocument
-    @State private var destinationID: UUID?
-    @State private var isMoving = false
-
-    private var candidateFolders: [Folder] {
-        store.activeFolders.filter { $0.id != document.folderId }
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                if candidateFolders.isEmpty {
-                    Text("No other folders available to move this document into.")
-                        .watakeType(.caption)
-                        .foregroundStyle(WatakeColor.text.secondary)
-                } else {
-                    Picker("Destination folder", selection: $destinationID) {
-                        Text("Select folder").tag(UUID?.none)
-                        ForEach(candidateFolders) { folder in
-                            Text(folder.name).tag(Optional(folder.id))
-                        }
-                    }
-                    .accessibilityLabel("Destination folder selection")
-                }
-            }
-            .navigationTitle("Move document")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isMoving ? "Moving…" : "Move") {
-                        guard let destinationID, let destination = store.folder(for: destinationID) else { return }
-                        isMoving = true
-                        Task {
-                            if await store.moveDocument(document, to: destination) {
-                                dismiss()
-                            }
-                            isMoving = false
-                        }
-                    }
-                    .disabled(destinationID == nil || isMoving)
-                }
-            }
-        }
-    }
-}
-
-private struct FolderEdit: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: LibraryStore
-    let folder: Folder
-    @State private var name = ""
-    @State private var color = ArchiveTagPalette.colors[8]
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Folder name", text: $name)
-                PalettePicker(selection: $color)
-            }
-            .onAppear { name = folder.name
-                color = folder.colorHex
-            }
-            .navigationTitle("Edit folder")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            await store.renameFolder(folder, name: name)
-                            await store.recolorFolder(folder, colorHex: color)
-                            dismiss()
-                        }
-                    }
-                }
-            }
-        }
     }
 }

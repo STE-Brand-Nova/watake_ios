@@ -81,6 +81,7 @@ extension DocumentPage {
     enum CodingKeys: String, CodingKey {
         case id
         case index
+        case originalIndex
         case source
         case rectified
         case ocrText
@@ -92,6 +93,7 @@ extension DocumentPage {
         try self.init(
             id: container.decodeLowercaseUUID(forKey: .id),
             index: container.decode(Int.self, forKey: .index),
+            originalIndex: container.decodeIfPresent(Int.self, forKey: .originalIndex),
             source: container.decode(AssetReference.self, forKey: .source),
             rectified: container.decodeIfPresent(AssetReference.self, forKey: .rectified),
             ocrText: container.decodeIfPresent(String.self, forKey: .ocrText),
@@ -104,6 +106,7 @@ extension DocumentPage {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeLowercaseUUID(id, forKey: .id)
         try container.encode(index, forKey: .index)
+        try container.encode(originalIndex, forKey: .originalIndex)
         try container.encode(source, forKey: .source)
         try container.encodeIfPresent(rectified, forKey: .rectified)
         try container.encodeIfPresent(ocrText, forKey: .ocrText)

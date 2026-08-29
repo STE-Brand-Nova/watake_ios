@@ -37,6 +37,52 @@ struct WatermarkIssuanceServiceTests {
         #expect(await repository.issuanceCount() == 2)
     }
 
+    @Test func existingSnapshotKeepsOldOrderWhileNewCopyUsesCurrentOrder() async throws {
+        let fixture = TestDocumentFactory.makeDocument(pageSizes: [(180, 240), (240, 180)])
+        await TestDocumentFactory.seedAssets(document: fixture.document, data: fixture.pageData, into: fixture.store)
+        let repository = MemoryCopyRepository()
+        let recipient = WatermarkRecipient(id: UUID(), displayName: "Acme", createdAt: .now, updatedAt: .now)
+        let service = WatermarkIssuanceService(repository: repository, assetStore: fixture.store)
+
+        let historical = try await service.createCopies(
+            documents: [fixture.document],
+            recipient: recipient,
+            purpose: "Initial",
+            templateConfig: templateConfig()
+        )
+        let sourceOrdered = fixture.document.pages.sorted { $0.index < $1.index }
+        let reorderedPages = [sourceOrdered[1], sourceOrdered[0]].enumerated().map { index, page in
+            DocumentPage(
+                id: page.id,
+                index: index,
+                originalIndex: page.originalIndex,
+                source: page.source,
+                rectified: page.rectified,
+                ocrText: page.ocrText,
+                ocrBlocks: page.ocrBlocks
+            )
+        }
+        let current = StoredDocument(
+            id: fixture.document.id,
+            folderId: fixture.document.folderId,
+            name: fixture.document.name,
+            createdAt: fixture.document.createdAt,
+            updatedAt: .now,
+            orderIndex: fixture.document.orderIndex,
+            pages: reorderedPages
+        )
+
+        let newCopy = try await service.createCopies(
+            documents: [current],
+            recipient: recipient,
+            purpose: "Updated",
+            templateConfig: templateConfig()
+        )
+
+        #expect(historical.renditions[0].pages.map(\.pageId) == sourceOrdered.map(\.id))
+        #expect(newCopy.renditions[0].pages.map(\.pageId) == reorderedPages.map(\.id))
+    }
+
     @Test func failedCommitRemovesEveryStagedRenditionAsset() async throws {
         let fixture = TestDocumentFactory.makeDocument(pageSizes: [(120, 160), (120, 160)])
         await TestDocumentFactory.seedAssets(document: fixture.document, data: fixture.pageData, into: fixture.store)

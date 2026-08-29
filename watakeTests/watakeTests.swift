@@ -120,6 +120,37 @@ struct ViewerCopiesTransitionTests {
 }
 
 @MainActor
+struct ViewerDocumentActionTransitionTests {
+    @Test func compactViewerDefersActionUntilViewerDismissal() {
+        let documentID = UUID()
+        var transition = ViewerDocumentActionTransition()
+        let action = ViewerDocumentAction.rename(documentID)
+
+        #expect(transition.request(action, viewerIsPresentedModally: true) == nil)
+        #expect(transition.pendingAction == action)
+        #expect(transition.takePendingAfterViewerDismissal() == action)
+        #expect(transition.pendingAction == nil)
+    }
+
+    @Test func inlineViewerPresentsActionImmediately() {
+        let action = ViewerDocumentAction.export(UUID())
+        var transition = ViewerDocumentActionTransition()
+
+        #expect(transition.request(action, viewerIsPresentedModally: false) == action)
+        #expect(transition.takePendingAfterViewerDismissal() == nil)
+    }
+
+    @Test func compactDeleteIsDeliveredOnlyOnceAfterViewerDismissal() {
+        let action = ViewerDocumentAction.delete(UUID())
+        var transition = ViewerDocumentActionTransition()
+
+        #expect(transition.request(action, viewerIsPresentedModally: true) == nil)
+        #expect(transition.takePendingAfterViewerDismissal() == action)
+        #expect(transition.takePendingAfterViewerDismissal() == nil)
+    }
+}
+
+@MainActor
 struct AppShellLayoutTests {
     @Test func compactBelowSevenHundred() {
         #expect(AppShellLayout.usesSidebar(forWidth: 699) == false)

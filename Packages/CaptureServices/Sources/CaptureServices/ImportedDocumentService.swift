@@ -26,6 +26,7 @@ public struct ImportedDocumentFactory: Sendable {
             return DocumentPage(
                 id: pageID,
                 index: index,
+                originalIndex: index,
                 source: asset(
                     data: page.sourceData,
                     documentID: id,

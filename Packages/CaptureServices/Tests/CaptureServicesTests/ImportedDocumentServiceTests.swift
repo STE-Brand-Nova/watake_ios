@@ -14,9 +14,11 @@ struct ImportedDocumentServiceTests {
         let grouped = try await service.save(pages: pages, grouping: .oneDocument, into: folder.id, named: "Receipt")
         #expect(grouped.count == 1)
         #expect(grouped[0].pages.map(\.index) == [0, 1])
+        #expect(grouped[0].pages.map(\.originalIndex) == [0, 1])
         let separated = try await service.save(pages: pages, grouping: .separateDocuments, into: folder.id, named: "Receipt")
         #expect(separated.count == 2)
         #expect(separated.allSatisfy { $0.pages.count == 1 })
+        #expect(separated.allSatisfy { $0.pages[0].originalIndex == 0 })
     }
 
     @Test func failedAssetWriteCleansUpEarlierAssets() async {

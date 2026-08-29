@@ -358,6 +358,41 @@ struct DomainValidationTests {
 }
 
 extension DomainValidationTests {
+    @Test("legacy page metadata derives original index from current index")
+    func legacyPageOriginalIndexCompatibility() throws {
+        let page = makePage(index: 0)
+        let encoded = try WatakeContractCoding.makeJSONEncoder().encode(page)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "originalIndex")
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try WatakeContractCoding.makeJSONDecoder().decode(DocumentPage.self, from: legacyData)
+
+        #expect(decoded.originalIndex == decoded.index)
+    }
+
+    @Test("document accepts gaps in original page indexes after page removal")
+    func originalPageIndexesMayContainGaps() throws {
+        let pages = [
+            DocumentPage(id: fixedUUID(70), index: 0, originalIndex: 0, source: makeAsset()),
+            DocumentPage(id: fixedUUID(71), index: 1, originalIndex: 2, source: makeAsset())
+        ]
+
+        try makeDocument(pages: pages).validate()
+    }
+
+    @Test("document rejects duplicate original page indexes")
+    func originalPageIndexesMustBeUnique() {
+        let pages = [
+            DocumentPage(id: fixedUUID(70), index: 0, originalIndex: 1, source: makeAsset()),
+            DocumentPage(id: fixedUUID(71), index: 1, originalIndex: 1, source: makeAsset())
+        ]
+
+        expectValidationError(.originalPageIndexesInvalid) {
+            try makeDocument(pages: pages).validate()
+        }
+    }
+
     @Test("legacy issuance and rendition metadata decode into Unassigned compatibility values")
     func legacyWatermarkMetadataDecodes() throws {
         let issuanceID = fixedUUID(41)
