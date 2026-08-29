@@ -36,6 +36,12 @@ enum DomainValidation {
             throw DomainValidationError.documentRequiresPage
         }
         try validateIndexes(pages.map(\.index))
+        let originalIndexes = pages.map(\.originalIndex)
+        let hasValidOriginalIndexes = originalIndexes.allSatisfy { $0 >= 0 } &&
+            Set(originalIndexes).count == originalIndexes.count
+        guard hasValidOriginalIndexes else {
+            throw DomainValidationError.originalPageIndexesInvalid
+        }
     }
 
     static func validateOrderIndex(_ index: Int) throws {

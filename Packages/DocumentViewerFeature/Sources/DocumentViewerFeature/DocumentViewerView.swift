@@ -19,8 +19,15 @@
         private let watermarkedCopies: [DocumentWatermarkedCopySummary]
         private let onWatermarkedCopyRequested: ((UUID) -> Void)?
         private let onViewAllWatermarkedCopies: (() -> Void)?
+        private let onRenameRequested: ((StoredDocument) -> Void)?
+        private let onMoveRequested: ((StoredDocument) -> Void)?
+        private let onExportRequested: ((StoredDocument) -> Void)?
+        private let onDeleteRequested: ((StoredDocument) -> Void)?
         @FocusState private var isViewerFocused: Bool
         @State private var watermarkEditor: WatermarkEditorPresentation?
+        @State private var pageOrganizer: OrganizePagesPresentation?
+        @State private var documentPendingDeletion: StoredDocument?
+        @State private var showsPageOrganizationConfirmation = false
 
         /// `onClose` is optional: it powers an accessible Escape-key shortcut
         /// to dismiss the viewer, in addition to whatever visible back/close
@@ -32,6 +39,10 @@
             watermarkedCopies: [DocumentWatermarkedCopySummary] = [],
             onWatermarkedCopyRequested: ((UUID) -> Void)? = nil,
             onViewAllWatermarkedCopies: (() -> Void)? = nil,
+            onRenameRequested: ((StoredDocument) -> Void)? = nil,
+            onMoveRequested: ((StoredDocument) -> Void)? = nil,
+            onExportRequested: ((StoredDocument) -> Void)? = nil,
+            onDeleteRequested: ((StoredDocument) -> Void)? = nil,
             onClose: (() -> Void)? = nil
         ) {
             self.model = model
@@ -40,6 +51,10 @@
             self.watermarkedCopies = watermarkedCopies
             self.onWatermarkedCopyRequested = onWatermarkedCopyRequested
             self.onViewAllWatermarkedCopies = onViewAllWatermarkedCopies
+            self.onRenameRequested = onRenameRequested
+            self.onMoveRequested = onMoveRequested
+            self.onExportRequested = onExportRequested
+            self.onDeleteRequested = onDeleteRequested
             self.onClose = onClose
         }
 
@@ -66,8 +81,38 @@
                     watermarkEditor = nil
                 }
             }
+            .fullScreenCover(item: $pageOrganizer) { presentation in
+                OrganizePagesView(model: presentation.model) {
+                    showsPageOrganizationConfirmation = true
+                }
+            }
+            .confirmationDialog(
+                "Move document to Trash?",
+                isPresented: deleteConfirmationBinding,
+                titleVisibility: .visible,
+                presenting: documentPendingDeletion
+            ) { document in
+                Button("Move to Trash", role: .destructive) {
+                    documentPendingDeletion = nil
+                    onDeleteRequested?(document)
+                }
+                Button("Cancel", role: .cancel) {
+                    documentPendingDeletion = nil
+                }
+            } message: { document in
+                Text("\(document.name) will remain recoverable from Trash.")
+            }
             .overlay(alignment: .bottom) {
-                OCRExtractionProgress(state: model.ocrState, cancel: model.cancelTextExtraction)
+                VStack(spacing: WatakeSpacing.sm) {
+                    if showsPageOrganizationConfirmation {
+                        PageOrganizationConfirmation()
+                            .task {
+                                try? await Task.sleep(for: .seconds(2))
+                                showsPageOrganizationConfirmation = false
+                            }
+                    }
+                    OCRExtractionProgress(state: model.ocrState, cancel: model.cancelTextExtraction)
+                }
             }
             .onKeyPress(.escape) {
                 guard let onClose else { return .ignored }
@@ -116,36 +161,106 @@
                 onViewAllWatermarkedCopies: onViewAllWatermarkedCopies
             )
             .navigationTitle(content.document.name)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        if let onWatermarkRequested {
-                            onWatermarkRequested(content.document.id)
-                            return
-                        }
-                        guard case .loaded(let data) = content.pageAsset else { return }
-                        watermarkEditor = WatermarkEditorPresentation(
-                            sourceImageData: data,
-                            presetStore: presetStore
-                        )
-                    } label: {
-                        Label("Watermark", systemImage: "paintbrush")
-                    }
-                    .disabled(!isPageLoaded(content))
-                    .accessibilityHint("Creates a recipient-based watermarked copy of every page")
+            .toolbar { viewerToolbar(content) }
+        }
+
+        @ToolbarContentBuilder
+        private func viewerToolbar(_ content: DocumentViewerContent) -> some ToolbarContent {
+            ToolbarItem(placement: .topBarTrailing) { watermarkButton(content) }
+            ToolbarItem(placement: .topBarTrailing) { documentActionsMenu(content) }
+        }
+
+        private func watermarkButton(_ content: DocumentViewerContent) -> some View {
+            Button {
+                if let onWatermarkRequested {
+                    onWatermarkRequested(content.document.id)
+                    return
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if model.ocrState.isExtracting {
-                        Button("Cancel extraction") { model.cancelTextExtraction() }
-                            .accessibilityLabel("Cancel text extraction")
-                    } else {
-                        Button { model.extractText() } label: {
-                            Label("Extract Text", systemImage: "text.viewfinder")
-                        }
-                        .accessibilityHint("Extracts private text from every page on this device")
-                    }
+                guard case .loaded(let data) = content.pageAsset else { return }
+                watermarkEditor = WatermarkEditorPresentation(sourceImageData: data, presetStore: presetStore)
+            } label: {
+                Label("Watermark", systemImage: "paintbrush")
+            }
+            .disabled(!isPageLoaded(content))
+            .accessibilityHint("Creates a recipient-based watermarked copy of every page")
+        }
+
+        private func documentActionsMenu(_ content: DocumentViewerContent) -> some View {
+            Menu {
+                organizationActions
+                documentMetadataActions(content.document)
+                extractionAction
+                recoveryAction
+                deleteAction(content.document)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+            .accessibilityHint("Shows document actions")
+        }
+
+        private var organizationActions: some View {
+            Button { presentPageOrganizer() } label: {
+                Label("Organize Pages", systemImage: "square.grid.2x2")
+            }
+            .disabled(model.ocrState.isExtracting)
+        }
+
+        @ViewBuilder
+        private var recoveryAction: some View {
+            Divider()
+            Button { presentPageOrganizer(restoringOriginalOrder: true) } label: {
+                Label("Restore Original Page Order", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.canRestoreOriginalPageOrder || model.ocrState.isExtracting)
+        }
+
+        @ViewBuilder
+        private func documentMetadataActions(_ document: StoredDocument) -> some View {
+            if let onRenameRequested {
+                Button { onRenameRequested(document) } label: { Label("Rename", systemImage: "pencil") }
+            }
+            if let onMoveRequested {
+                Button { onMoveRequested(document) } label: { Label("Move", systemImage: "folder") }
+            }
+            if let onExportRequested {
+                Button { onExportRequested(document) } label: { Label("Export", systemImage: "square.and.arrow.up") }
+            }
+        }
+
+        @ViewBuilder
+        private var extractionAction: some View {
+            Divider()
+            if model.ocrState.isExtracting {
+                Button("Cancel Text Extraction") { model.cancelTextExtraction() }
+            } else {
+                Button { model.extractText() } label: { Label("Extract Text", systemImage: "text.viewfinder") }
+            }
+        }
+
+        @ViewBuilder
+        private func deleteAction(_ document: StoredDocument) -> some View {
+            if onDeleteRequested != nil {
+                Divider()
+                Button(role: .destructive) { documentPendingDeletion = document } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
+        }
+
+        private var deleteConfirmationBinding: Binding<Bool> {
+            Binding(
+                get: { documentPendingDeletion != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        documentPendingDeletion = nil
+                    }
+                }
+            )
+        }
+
+        private func presentPageOrganizer(restoringOriginalOrder: Bool = false) {
+            guard let organizer = model.makeOrganizePagesModel(restoringOriginalOrder: restoringOriginalOrder) else { return }
+            pageOrganizer = OrganizePagesPresentation(model: organizer)
         }
 
         private func isPageLoaded(_ content: DocumentViewerContent) -> Bool {
@@ -154,6 +269,27 @@
             } else {
                 false
             }
+        }
+    }
+
+    @MainActor
+    private struct OrganizePagesPresentation: Identifiable {
+        let id = UUID()
+        let model: OrganizePagesModel
+    }
+
+    private struct PageOrganizationConfirmation: View {
+        var body: some View {
+            Label("Pages reorganized.", systemImage: "checkmark.circle.fill")
+                .watakeType(.bodyEmphasis)
+                .foregroundStyle(WatakeColor.text.primary)
+                .padding(.horizontal, WatakeSpacing.md)
+                .padding(.vertical, WatakeSpacing.sm)
+                .background(WatakeColor.surface.raised)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(WatakeColor.border.subtle, lineWidth: 1))
+                .padding(WatakeSpacing.md)
+                .accessibilityLabel("Pages reorganized")
         }
     }
 

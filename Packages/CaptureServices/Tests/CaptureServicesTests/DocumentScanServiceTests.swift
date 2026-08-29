@@ -17,6 +17,7 @@ struct DocumentScanServiceTests {
         )
 
         #expect(document.pages.map(\.index) == [0, 1])
+        #expect(document.pages.map(\.originalIndex) == [0, 1])
         #expect(document.pages[0].source
             .relativePath ==
             "documents/\(document.id.uuidString.lowercased())/source/\(document.pages[0].source.id.uuidString.lowercased()).jpg")

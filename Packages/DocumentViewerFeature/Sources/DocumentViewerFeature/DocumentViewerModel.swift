@@ -19,7 +19,7 @@ public final class DocumentViewerModel {
     private let thumbnailLoader: any DocumentPageThumbnailLoading
     private let ocrRecognizer: any OCRRecognizing
     private let ocrStore: any DocumentOCRPersisting
-    private let onOCRPersisted: @MainActor @Sendable (StoredDocument) -> Void
+    private let onDocumentPersisted: @MainActor @Sendable (StoredDocument) -> Void
     private var loadTask: Task<Void, Never>?
     private var assetTask: Task<Void, Never>?
     private var ocrTask: Task<Void, Never>?
@@ -51,7 +51,7 @@ public final class DocumentViewerModel {
         self.thumbnailLoader = thumbnailLoader
         self.ocrRecognizer = ocrRecognizer
         self.ocrStore = ocrStore
-        self.onOCRPersisted = onOCRPersisted
+        onDocumentPersisted = onOCRPersisted
     }
 
     /// Loads (or reloads) the document. Cancels any in-flight load first so a
@@ -130,6 +130,37 @@ public final class DocumentViewerModel {
     /// page rail, independent of the main preview's selected-page asset load.
     public func loadThumbnailData(for page: DocumentPage) async throws -> Data {
         try await thumbnailLoader.thumbnail(for: page)
+    }
+
+    var canRestoreOriginalPageOrder: Bool {
+        guard case .content(let content) = state else { return false }
+        let current = content.pages.sorted { $0.index < $1.index }.map(\.id)
+        let original = content.pages.sorted {
+            $0.originalIndex != $1.originalIndex
+                ? $0.originalIndex < $1.originalIndex
+                : $0.id.uuidString < $1.id.uuidString
+        }.map(\.id)
+        return current != original
+    }
+
+    func makeOrganizePagesModel(restoringOriginalOrder: Bool = false) -> OrganizePagesModel? {
+        guard case .content(let content) = state else { return nil }
+        let store = ocrStore
+        let thumbnails = thumbnailLoader
+        let organizer = OrganizePagesModel(
+            document: content.document,
+            loadDocument: { id in try await store.document(id: id) },
+            saveDocument: { document in try await store.saveDocument(document) },
+            loadThumbnail: { page in try await thumbnails.thumbnail(for: page) },
+            onPersisted: { [weak self] document in
+                self?.updateContent(with: document)
+                self?.onDocumentPersisted(document)
+            }
+        )
+        if restoringOriginalOrder {
+            organizer.restoreOriginalOrder()
+        }
+        return organizer
     }
 
     /// Test-only synchronization point: awaits any in-flight document/asset
@@ -277,7 +308,7 @@ public final class DocumentViewerModel {
         try updatedDocument.validate()
         try await ocrStore.saveDocument(updatedDocument)
         updateContent(with: updatedDocument)
-        onOCRPersisted(updatedDocument)
+        onDocumentPersisted(updatedDocument)
         ocrState = .completed(lowConfidence: output.lowestConfidence < 0.5)
     }
 
@@ -325,6 +356,7 @@ private struct OCRExtractionOutput {
             DocumentPage(
                 id: page.id,
                 index: page.index,
+                originalIndex: page.originalIndex,
                 source: page.source,
                 rectified: page.rectified,
                 ocrText: result.text,

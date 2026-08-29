@@ -74,6 +74,37 @@ struct ViewerCopiesTransition: Equatable {
     }
 }
 
+enum ViewerDocumentAction: Equatable {
+    case rename(UUID)
+    case move(UUID)
+    case export(UUID)
+    case delete(UUID)
+
+    var documentID: UUID {
+        switch self {
+        case .rename(let id), .move(let id), .export(let id), .delete(let id): id
+        }
+    }
+}
+
+struct ViewerDocumentActionTransition: Equatable {
+    private(set) var pendingAction: ViewerDocumentAction?
+
+    mutating func request(
+        _ action: ViewerDocumentAction,
+        viewerIsPresentedModally: Bool
+    ) -> ViewerDocumentAction? {
+        guard viewerIsPresentedModally else { return action }
+        pendingAction = action
+        return nil
+    }
+
+    mutating func takePendingAfterViewerDismissal() -> ViewerDocumentAction? {
+        defer { pendingAction = nil }
+        return pendingAction
+    }
+}
+
 struct WatermarkCopyNavigationRequest: Equatable, Sendable {
     let documentID: UUID
     let renditionID: UUID

@@ -9,6 +9,7 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case documentRequiresPage
     case negativeOrderIndex(Int)
     case pageIndexesNotContiguous
+    case originalPageIndexesInvalid
     case duplicateTagIDs
     case invalidAssetPath(String)
     case invalidSHA256(String)
@@ -153,6 +154,7 @@ public struct StoredDocument: Identifiable, Codable, Equatable, Sendable {
 public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let index: Int
+    public let originalIndex: Int
     public let source: AssetReference
     public let rectified: AssetReference?
     public let ocrText: String?
@@ -161,6 +163,7 @@ public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
     public init(
         id: UUID,
         index: Int,
+        originalIndex: Int? = nil,
         source: AssetReference,
         rectified: AssetReference? = nil,
         ocrText: String? = nil,
@@ -168,6 +171,7 @@ public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.index = index
+        self.originalIndex = originalIndex ?? index
         self.source = source
         self.rectified = rectified
         self.ocrText = ocrText?.normalizedLineEndings()
