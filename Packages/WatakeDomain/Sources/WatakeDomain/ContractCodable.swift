@@ -86,6 +86,7 @@ extension DocumentPage {
         case rectified
         case ocrText
         case ocrBlocks
+        case annotations
     }
 
     public init(from decoder: Decoder) throws {
@@ -97,7 +98,8 @@ extension DocumentPage {
             source: container.decode(AssetReference.self, forKey: .source),
             rectified: container.decodeIfPresent(AssetReference.self, forKey: .rectified),
             ocrText: container.decodeIfPresent(String.self, forKey: .ocrText),
-            ocrBlocks: container.decode([OCRBlock].self, forKey: .ocrBlocks)
+            ocrBlocks: container.decode([OCRBlock].self, forKey: .ocrBlocks),
+            annotations: container.decodeIfPresent([PageAnnotation].self, forKey: .annotations) ?? []
         )
         try validate()
     }
@@ -111,6 +113,9 @@ extension DocumentPage {
         try container.encodeIfPresent(rectified, forKey: .rectified)
         try container.encodeIfPresent(ocrText, forKey: .ocrText)
         try container.encode(ocrBlocks, forKey: .ocrBlocks)
+        if !annotations.isEmpty {
+            try container.encode(annotations, forKey: .annotations)
+        }
     }
 }
 
@@ -547,6 +552,95 @@ extension ExportDraft {
         try container.encodeLowercaseUUIDs(pageIds, forKey: .pageIds)
         try container.encode(format, forKey: .format)
         try container.encode(createdAt, forKey: .createdAt)
+    }
+}
+
+extension PageAnnotation {
+    enum CodingKeys: String, CodingKey {
+        case id, kind, transform, opacity, zIndex, text, strokes, image, isStraightened
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decodeLowercaseUUID(forKey: .id),
+            kind: container.decode(PageAnnotationKind.self, forKey: .kind),
+            transform: container.decode(AnnotationTransform.self, forKey: .transform),
+            opacity: container.decode(Double.self, forKey: .opacity),
+            zIndex: container.decode(Int.self, forKey: .zIndex),
+            text: container.decodeIfPresent(AnnotationText.self, forKey: .text),
+            strokes: container.decodeIfPresent([InkStroke].self, forKey: .strokes) ?? [],
+            image: container.decodeIfPresent(AssetReference.self, forKey: .image),
+            isStraightened: container.decodeIfPresent(Bool.self, forKey: .isStraightened) ?? false
+        )
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeLowercaseUUID(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(transform, forKey: .transform)
+        try container.encode(opacity, forKey: .opacity)
+        try container.encode(zIndex, forKey: .zIndex)
+        try container.encodeIfPresent(text, forKey: .text)
+        if !strokes.isEmpty {
+            try container.encode(strokes, forKey: .strokes)
+        }
+        try container.encodeIfPresent(image, forKey: .image)
+        if isStraightened {
+            try container.encode(true, forKey: .isStraightened)
+        }
+    }
+}
+
+extension SavedSignature {
+    enum CodingKeys: String, CodingKey { case id, name, strokes, createdAt, updatedAt }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decodeLowercaseUUID(forKey: .id),
+            name: container.decode(String.self, forKey: .name),
+            strokes: container.decode([InkStroke].self, forKey: .strokes),
+            createdAt: container.decode(Date.self, forKey: .createdAt),
+            updatedAt: container.decode(Date.self, forKey: .updatedAt)
+        )
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeLowercaseUUID(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(strokes, forKey: .strokes)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
+}
+
+extension DocumentEditRecoveryDraft {
+    enum CodingKeys: String, CodingKey { case document, sourceDocumentId, selectedPageId, stagedAssets, savedAt }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            document: container.decode(StoredDocument.self, forKey: .document),
+            sourceDocumentID: container.decodeLowercaseUUID(forKey: .sourceDocumentId),
+            selectedPageID: container.decodeLowercaseUUID(forKey: .selectedPageId),
+            stagedAssets: container.decodeIfPresent([AssetReference].self, forKey: .stagedAssets) ?? [],
+            savedAt: container.decode(Date.self, forKey: .savedAt)
+        )
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(document, forKey: .document)
+        try container.encodeLowercaseUUID(sourceDocumentID, forKey: .sourceDocumentId)
+        try container.encodeLowercaseUUID(selectedPageID, forKey: .selectedPageId)
+        try container.encode(stagedAssets, forKey: .stagedAssets)
+        try container.encode(savedAt, forKey: .savedAt)
     }
 }
 

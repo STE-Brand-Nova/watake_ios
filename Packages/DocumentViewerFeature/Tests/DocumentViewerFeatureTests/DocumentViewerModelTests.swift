@@ -265,4 +265,40 @@ struct DocumentViewerModelTests {
         #expect(content.pageAsset == .loaded(Data("full-res-first".utf8)))
         #expect(await loader.readAssetCallCount == 1)
     }
+
+    @Test("saved annotations are composited before the selected page is published")
+    func annotatedPageUsesSharedRenderer() async {
+        let source = makeAssetReference()
+        let annotation = PageAnnotation(
+            id: UUID(),
+            kind: .text,
+            transform: AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.6, height: 0.15),
+            zIndex: 0,
+            text: AnnotationText(text: "Approved")
+        )
+        let page = DocumentPage(id: UUID(), index: 0, source: source, annotations: [annotation])
+        let document = makeDocument(pages: [page])
+        let loader = FakeLoader()
+        await loader.setDocument(document)
+        await loader.setAsset(Data("source".utf8), for: source)
+        let renderer = FakeAnnotationRenderer(output: Data("annotated".utf8))
+        let model = DocumentViewerModel(
+            documentID: document.id,
+            loader: loader,
+            thumbnailLoader: FakeThumbnailLoader(),
+            ocrRecognizer: FakeOCRRecognizer(),
+            ocrStore: FakeOCRStore(),
+            annotationRenderer: renderer
+        )
+
+        model.load()
+        await model.waitUntilIdle()
+
+        guard case .content(let content) = model.state else {
+            Issue.record("expected content state")
+            return
+        }
+        #expect(content.pageAsset == .loaded(Data("annotated".utf8)))
+        #expect(await renderer.renderedAnnotations() == [annotation])
+    }
 }

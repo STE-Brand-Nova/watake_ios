@@ -68,4 +68,20 @@ enum StorageLayout {
     static func temporaryDirectory(_ root: URL) -> URL {
         root.appendingPathComponent(".watake-tmp", isDirectory: true)
     }
+
+    static func signaturesRoot(_ root: URL) -> URL {
+        root.appendingPathComponent("signatures", isDirectory: true)
+    }
+
+    static func signatureMetadataFile(_ root: URL, _ signatureID: UUID) -> URL {
+        signaturesRoot(root).appendingPathComponent("\(signatureID.uuidString.lowercased()).json.enc")
+    }
+
+    static func editorDraftsRoot(_ root: URL) -> URL {
+        root.appendingPathComponent("editor-drafts", isDirectory: true)
+    }
+
+    static func editorDraftFile(_ root: URL, _ documentID: UUID) -> URL {
+        editorDraftsRoot(root).appendingPathComponent("\(documentID.uuidString.lowercased()).json.enc")
+    }
 }

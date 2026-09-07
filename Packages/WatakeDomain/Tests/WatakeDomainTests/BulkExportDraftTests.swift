@@ -12,7 +12,14 @@ struct BulkExportDraftTests {
         let doc1Page0 = makePage(id: fixedUUID(0), index: 0)
         let doc1 = makeDocument(id: fixedUUID(100), orderIndex: 1, pages: [doc1Page1, doc1Page0])
 
-        let doc0Page0 = makePage(id: fixedUUID(2), index: 0)
+        let annotation = PageAnnotation(
+            id: fixedUUID(3),
+            kind: .text,
+            transform: AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.5, height: 0.1),
+            zIndex: 0,
+            text: AnnotationText(text: "Approved")
+        )
+        let doc0Page0 = makePage(id: fixedUUID(2), index: 0, annotations: [annotation])
         let doc0 = makeDocument(id: fixedUUID(101), orderIndex: 0, pages: [doc0Page0])
 
         // Act
@@ -24,6 +31,7 @@ struct BulkExportDraftTests {
         #expect(draft.items[0].id == doc0Page0.id)
         #expect(draft.items[1].id == doc1Page0.id)
         #expect(draft.items[2].id == doc1Page1.id)
+        #expect(draft.items[0].annotations == [annotation])
 
         // All included by default.
         // Closure form (not \.isIncluded key path): the #expect macro treats a
@@ -187,8 +195,8 @@ struct BulkExportDraftTests {
         AssetReference(id: fixedUUID(99), relativePath: "test.jpg", sha256Hex: String(repeating: "a", count: 64), byteSize: 1000)
     }
 
-    private func makePage(id: UUID, index: Int) -> DocumentPage {
-        DocumentPage(id: id, index: index, source: makeAsset())
+    private func makePage(id: UUID, index: Int, annotations: [PageAnnotation] = []) -> DocumentPage {
+        DocumentPage(id: id, index: index, source: makeAsset(), annotations: annotations)
     }
 
     private func makeDocument(id: UUID, orderIndex: Int, pages: [DocumentPage]) -> StoredDocument {

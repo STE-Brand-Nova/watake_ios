@@ -19,6 +19,7 @@ public final class DocumentViewerModel {
     private let thumbnailLoader: any DocumentPageThumbnailLoading
     private let ocrRecognizer: any OCRRecognizing
     private let ocrStore: any DocumentOCRPersisting
+    private let annotationRenderer: any PageAnnotationRendering
     private let onDocumentPersisted: @MainActor @Sendable (StoredDocument) -> Void
     private var loadTask: Task<Void, Never>?
     private var assetTask: Task<Void, Never>?
@@ -34,7 +35,8 @@ public final class DocumentViewerModel {
             loader: loader,
             thumbnailLoader: thumbnailLoader,
             ocrRecognizer: UnavailableOCRRecognizer(),
-            ocrStore: UnavailableDocumentOCRStore()
+            ocrStore: UnavailableDocumentOCRStore(),
+            annotationRenderer: PassthroughPageAnnotationRenderer()
         )
     }
 
@@ -44,6 +46,7 @@ public final class DocumentViewerModel {
         thumbnailLoader: any DocumentPageThumbnailLoading,
         ocrRecognizer: any OCRRecognizing,
         ocrStore: any DocumentOCRPersisting,
+        annotationRenderer: (any PageAnnotationRendering)? = nil,
         onOCRPersisted: @escaping @MainActor @Sendable (StoredDocument) -> Void = { _ in }
     ) {
         self.documentID = documentID
@@ -51,6 +54,7 @@ public final class DocumentViewerModel {
         self.thumbnailLoader = thumbnailLoader
         self.ocrRecognizer = ocrRecognizer
         self.ocrStore = ocrStore
+        self.annotationRenderer = annotationRenderer ?? PassthroughPageAnnotationRenderer()
         onDocumentPersisted = onOCRPersisted
     }
 
@@ -163,6 +167,14 @@ public final class DocumentViewerModel {
         return organizer
     }
 
+    /// Applies a document-editor commit without resetting current viewer route.
+    public func acceptPersistedDocument(_ document: StoredDocument) {
+        updateContent(with: document)
+        onDocumentPersisted(document)
+        guard case .content(let content) = state else { return }
+        loadPageAsset(pageID: content.selectedPageID)
+    }
+
     /// Test-only synchronization point: awaits any in-flight document/asset
     /// load so tests can assert on settled state without polling.
     func waitUntilIdle() async {
@@ -231,14 +243,26 @@ public final class DocumentViewerModel {
     private func readDisplayAsset(page: DocumentPage) async throws -> (data: Data, isRectified: Bool) {
         if let rectified = page.rectified {
             do {
-                return try await (loader.readAsset(rectified), true)
+                let data = try await loader.readAsset(rectified)
+                return try await (renderAnnotations(in: data, page: page), true)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 // Fall through to the source below.
             }
         }
-        return try await (loader.readAsset(page.source), false)
+        let data = try await loader.readAsset(page.source)
+        return try await (renderAnnotations(in: data, page: page), false)
+    }
+
+    private func renderAnnotations(in data: Data, page: DocumentPage) async throws -> Data {
+        guard !page.annotations.isEmpty else { return data }
+        return try await annotationRenderer.renderJPEG(
+            sourceData: data,
+            annotations: page.annotations,
+            maximumPixelDimension: 2048,
+            quality: 0.92
+        )
     }
 
     /// Applies a mutation only if the selection hasn't moved on since the
@@ -360,7 +384,8 @@ private struct OCRExtractionOutput {
                 source: page.source,
                 rectified: page.rectified,
                 ocrText: result.text,
-                ocrBlocks: result.blocks
+                ocrBlocks: result.blocks,
+                annotations: page.annotations
             )
         )
     }
@@ -369,6 +394,17 @@ private struct OCRExtractionOutput {
 private struct UnavailableOCRRecognizer: OCRRecognizing {
     func recognize(imageData _: Data, configuration _: OCRConfiguration) async throws -> OCRRecognitionResult {
         throw OCRRecognitionError.requestFailed
+    }
+}
+
+private struct PassthroughPageAnnotationRenderer: PageAnnotationRendering {
+    func renderJPEG(
+        sourceData: Data,
+        annotations _: [PageAnnotation],
+        maximumPixelDimension _: Int?,
+        quality _: Double
+    ) async throws -> Data {
+        sourceData
     }
 }
 

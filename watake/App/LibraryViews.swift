@@ -238,6 +238,7 @@ private struct FolderDocumentsView: View {
                     DocumentViewerView(
                         model: store.documentViewerModel(for: documentID),
                         presetStore: store.watermarkPresetStore,
+                        editingStore: store.documentEditingStore,
                         onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: false) },
                         watermarkedCopies: store.watermarkCopySummaries(for: documentID),
                         onWatermarkedCopyRequested: {
@@ -251,8 +252,9 @@ private struct FolderDocumentsView: View {
                         },
                         onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: false) },
                         onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: false) },
-                        onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: false) },
+                        onExportRequested: { requestDocumentAction(.export($0), viewerIsCompact: false) },
                         onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: false) },
+                        onEditPersisted: store.documentEditorDidPersist,
                         onClose: { store.closeDocument() }
                     )
                     .toolbar {
@@ -273,6 +275,7 @@ private struct FolderDocumentsView: View {
                         DocumentViewerView(
                             model: store.documentViewerModel(for: documentID),
                             presetStore: store.watermarkPresetStore,
+                            editingStore: store.documentEditingStore,
                             onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: true) },
                             watermarkedCopies: store.watermarkCopySummaries(for: documentID),
                             onWatermarkedCopyRequested: {
@@ -286,8 +289,9 @@ private struct FolderDocumentsView: View {
                             },
                             onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: true) },
                             onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: true) },
-                            onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: true) },
+                            onExportRequested: { requestDocumentAction(.export($0), viewerIsCompact: true) },
                             onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: true) },
+                            onEditPersisted: store.documentEditorDidPersist,
                             onClose: { store.closeDocument() }
                         )
                         .toolbar {
@@ -572,6 +576,10 @@ extension FolderDocumentsView {
     }
 
     private func performDocumentAction(_ action: ViewerDocumentAction) {
+        if case .export(let document) = action {
+            exportModel = store.makeExportModel(for: [document])
+            return
+        }
         guard let document = store.documents(forIDs: [action.documentID]).first else { return }
         switch action {
         case .rename:
@@ -580,7 +588,7 @@ extension FolderDocumentsView {
         case .move:
             movingDocument = document
         case .export:
-            exportModel = store.makeExportModel(for: [document.id])
+            break
         case .delete:
             Task {
                 if await store.trashDocument(document) {

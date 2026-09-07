@@ -24,6 +24,7 @@ public struct BulkExportDraft: Equatable, Sendable {
         public let assetReference: AssetReference
         /// OCR block geometry, used only when the OCR text layer is enabled.
         public let ocrBlocks: [OCRBlock]
+        public let annotations: [PageAnnotation]
         /// Whether this page is included in the export. Toggled by the user.
         public var isIncluded: Bool
 
@@ -34,6 +35,7 @@ public struct BulkExportDraft: Equatable, Sendable {
             sourceTotalPages: Int = 1,
             assetReference: AssetReference,
             ocrBlocks: [OCRBlock] = [],
+            annotations: [PageAnnotation] = [],
             isIncluded: Bool = true
         ) {
             self.id = id
@@ -42,6 +44,7 @@ public struct BulkExportDraft: Equatable, Sendable {
             self.sourceTotalPages = sourceTotalPages
             self.assetReference = assetReference
             self.ocrBlocks = ocrBlocks
+            self.annotations = annotations
             self.isIncluded = isIncluded
         }
     }
@@ -157,6 +160,7 @@ public struct BulkExportDraft: Equatable, Sendable {
                     sourceTotalPages: sortedPages.count,
                     assetReference: bestAsset,
                     ocrBlocks: page.ocrBlocks,
+                    annotations: page.annotations,
                     isIncluded: true
                 )
                 pageItems.append(item)

@@ -31,6 +31,8 @@ public actor WatakeFileStorage {
         try createDirectoryIfNeeded(StorageLayout.presetsRoot(root))
         try createDirectoryIfNeeded(StorageLayout.recipientsRoot(root))
         try createDirectoryIfNeeded(StorageLayout.issuancesRoot(root))
+        try createDirectoryIfNeeded(StorageLayout.signaturesRoot(root))
+        try createDirectoryIfNeeded(StorageLayout.editorDraftsRoot(root))
         TemporaryFileCleanup.removeStaleTemporaryFiles(under: root, fileManager: fileManager)
         _ = try encryptionKey()
         isPrepared = true
@@ -276,6 +278,9 @@ extension WatakeFileStorage: DocumentRepository {
             if let rectified = page.rectified {
                 _ = try await readAsset(rectified)
             }
+            for image in page.annotations.compactMap(\.image) {
+                _ = try await readAsset(image)
+            }
         }
         let existingFolderId = try locateDocumentFolder(id: document.id, root: root)
         if let existingFolderId, existingFolderId != document.folderId {
@@ -317,6 +322,9 @@ extension WatakeFileStorage: DocumentRepository {
             _ = try await readAsset(page.source)
             if let rectified = page.rectified {
                 _ = try await readAsset(rectified)
+            }
+            for image in page.annotations.compactMap(\.image) {
+                _ = try await readAsset(image)
             }
         }
         guard existingFolderId != document.folderId else {
@@ -363,16 +371,7 @@ extension WatakeFileStorage: DocumentRepository {
         guard existing.deletedAt != nil || folderIsTrashed else {
             throw StorageError.documentNotInTrash
         }
-        for page in existing.pages {
-            if try await !hasOtherReferences(to: page.source, excludingDocumentId: id) {
-                try await removeAsset(page.source)
-            }
-            if let rectified = page.rectified {
-                if try await !hasOtherReferences(to: rectified, excludingDocumentId: id) {
-                    try await removeAsset(rectified)
-                }
-            }
-        }
+        try await removeUnreferencedPageAssets(in: existing, excludingDocumentIDs: [id])
         let directory = StorageLayout.documentDirectory(root, folderId, id)
         do {
             try fileManager.removeItem(at: directory)
@@ -394,18 +393,12 @@ extension WatakeFileStorage: DocumentRepository {
         let childIdsList = try listRecordIDs(in: StorageLayout.documentsRoot(root, id))
         let childIds = Set(childIdsList)
         for childId in childIdsList {
-            if let doc = try readDocument(at: StorageLayout.documentMetadataFile(root, id, childId), owningFolderId: id, root: root) {
-                for page in doc.pages {
-                    if try await !hasOtherReferences(to: page.source, excludingDocumentIds: childIds) {
-                        try await removeAsset(page.source)
-                    }
-                    if let rectified = page.rectified {
-                        if try await !hasOtherReferences(to: rectified, excludingDocumentIds: childIds) {
-                            try await removeAsset(rectified)
-                        }
-                    }
-                }
-            }
+            guard let document = try readDocument(
+                at: StorageLayout.documentMetadataFile(root, id, childId),
+                owningFolderId: id,
+                root: root
+            ) else { continue }
+            try await removeUnreferencedPageAssets(in: document, excludingDocumentIDs: childIds)
         }
         let directory = StorageLayout.documentsRoot(root, id)
         do {
@@ -452,6 +445,25 @@ extension WatakeFileStorage: DocumentRepository {
         try await hasOtherReferences(to: asset, excludingDocumentIds: [excludingDocumentId])
     }
 
+    private func removeUnreferencedPageAssets(
+        in document: StoredDocument,
+        excludingDocumentIDs: Set<UUID>
+    ) async throws {
+        for page in document.pages {
+            var assets = [page.source]
+            if let rectified = page.rectified {
+                assets.append(rectified)
+            }
+            assets.append(contentsOf: page.annotations.compactMap(\.image))
+            for asset in assets {
+                guard try await !hasOtherReferences(to: asset, excludingDocumentIds: excludingDocumentIDs) else {
+                    continue
+                }
+                try await removeAsset(asset)
+            }
+        }
+    }
+
     public func hasOtherReferences(to asset: AssetReference, excludingDocumentIds: Set<UUID>) async throws -> Bool {
         try referencedAssetIDs(excludingDocumentIds: excludingDocumentIds).contains(asset.id)
     }
@@ -495,6 +507,7 @@ extension WatakeFileStorage: DocumentRepository {
             if let rectified = page.rectified {
                 references.insert(rectified.id)
             }
+            page.annotations.compactMap(\.image).forEach { references.insert($0.id) }
         }
     }
 
@@ -783,3 +796,89 @@ extension WatakeFileStorage: DocumentPageAssetLoading {}
 /// OCR uses the same encrypted record transaction as every other document
 /// metadata update. No OCR content is written outside app-controlled storage.
 extension WatakeFileStorage: DocumentOCRPersisting {}
+
+extension WatakeFileStorage: DocumentEditingStore {
+    public func stageAnnotationAsset(_ data: Data, reference: AssetReference) async throws {
+        try await saveAsset(data, reference: reference)
+    }
+
+    public func discardAnnotationAssets(_ references: [AssetReference]) async {
+        let liveReferences = (try? referencedAssetIDs()) ?? []
+        for reference in references where !liveReferences.contains(reference.id) {
+            try? await removeAsset(reference)
+        }
+    }
+
+    public func saveEditedDocument(_ document: StoredDocument) async throws {
+        let previousImages = try await self.document(id: document.id)?.pages
+            .flatMap(\.annotations).compactMap(\.image) ?? []
+        try await saveDocument(document)
+        let currentIDs = Set(document.pages.flatMap(\.annotations).compactMap(\.image).map(\.id))
+        let candidates = previousImages.filter { !currentIDs.contains($0.id) }
+        let liveReferences = try referencedAssetIDs()
+        for reference in candidates where !liveReferences.contains(reference.id) {
+            try? await removeAsset(reference)
+        }
+    }
+
+    public func saveDocumentCopy(_ document: StoredDocument, sourceDocumentID: UUID) async throws {
+        guard document.id != sourceDocumentID, try await self.document(id: sourceDocumentID) != nil else {
+            throw StorageError.invalidRecord
+        }
+        try await saveDocument(document)
+    }
+
+    public func savedSignatures() async throws -> [SavedSignature] {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let ids = try listRecordIDs(in: StorageLayout.signaturesRoot(root), fileExtension: ".json.enc")
+        return try ids.compactMap {
+            try readEncryptedRecord(SavedSignature.self, at: StorageLayout.signatureMetadataFile(root, $0))
+        }.sorted {
+            let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+        }
+    }
+
+    public func saveSignature(_ signature: SavedSignature) async throws {
+        try ensurePrepared()
+        try signature.validate()
+        let root = try resolvedRoot()
+        let existing = try await savedSignatures()
+        guard !existing.contains(where: {
+            $0.id != signature.id && $0.name.caseInsensitiveCompare(signature.name) == .orderedSame
+        }) else {
+            throw StorageError.invalidRecord
+        }
+        try writeEncryptedRecord(signature, to: StorageLayout.signatureMetadataFile(root, signature.id), root: root)
+    }
+
+    public func deleteSignature(id: UUID) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let url = StorageLayout.signatureMetadataFile(root, id)
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do { try fileManager.removeItem(at: url) } catch { throw StorageError.ioFailure }
+    }
+
+    public func recoveryDraft(documentID: UUID) async throws -> DocumentEditRecoveryDraft? {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        return try readEncryptedRecord(DocumentEditRecoveryDraft.self, at: StorageLayout.editorDraftFile(root, documentID))
+    }
+
+    public func saveRecoveryDraft(_ draft: DocumentEditRecoveryDraft) async throws {
+        try ensurePrepared()
+        try draft.validate()
+        let root = try resolvedRoot()
+        try writeEncryptedRecord(draft, to: StorageLayout.editorDraftFile(root, draft.sourceDocumentID), root: root)
+    }
+
+    public func deleteRecoveryDraft(documentID: UUID) async throws {
+        try ensurePrepared()
+        let root = try resolvedRoot()
+        let url = StorageLayout.editorDraftFile(root, documentID)
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do { try fileManager.removeItem(at: url) } catch { throw StorageError.ioFailure }
+    }
+}

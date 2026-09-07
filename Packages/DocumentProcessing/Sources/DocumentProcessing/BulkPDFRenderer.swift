@@ -9,9 +9,11 @@ import WatakeDomain
 /// source images based on the target page size.
 public actor BulkPDFRenderer: BulkPDFExporting {
     private let assetStore: any DocumentAssetStore
+    private let annotationRenderer: any PageAnnotationRendering
 
-    public init(assetStore: any DocumentAssetStore) {
+    public init(assetStore: any DocumentAssetStore, annotationRenderer: (any PageAnnotationRendering)? = nil) {
         self.assetStore = assetStore
+        self.annotationRenderer = annotationRenderer ?? PageAnnotationCompositor(assetStore: assetStore)
     }
 
     public func renderPDF(
@@ -51,23 +53,7 @@ public actor BulkPDFRenderer: BulkPDFExporting {
             try Task.checkCancellation()
 
             progress(ExportProgress(completedPages: index, totalPages: totalPages, phase: .rendering(pageIndex: index)))
-
-            // Load asset data
-            let sourceData: Data
-            do {
-                sourceData = try await assetStore.readAsset(page.assetReference)
-            } catch {
-                throw ExportError.assetUnreadable(pageID: page.id)
-            }
-
-            try Task.checkCancellation()
-
-            try renderPage(
-                data: sourceData,
-                pageID: page.id,
-                job: job,
-                into: pdfContext
-            )
+            try await render(page: page, job: job, into: pdfContext)
         }
 
         try Task.checkCancellation()
@@ -83,6 +69,29 @@ public actor BulkPDFRenderer: BulkPDFExporting {
 
         success = true
         return job.outputURL
+    }
+
+    private func render(page: PDFRenderPage, job: PDFRenderJob, into context: CGContext) async throws {
+        let sourceData: Data
+        do {
+            sourceData = try await assetStore.readAsset(page.assetReference)
+        } catch {
+            throw ExportError.assetUnreadable(pageID: page.id)
+        }
+        try Task.checkCancellation()
+
+        let renderedData: Data
+        do {
+            renderedData = page.annotations.isEmpty ? sourceData : try await annotationRenderer.renderJPEG(
+                sourceData: sourceData,
+                annotations: page.annotations,
+                maximumPixelDimension: nil,
+                quality: 0.95
+            )
+        } catch {
+            throw ExportError.imageUndecodable(pageID: page.id)
+        }
+        try renderPage(data: renderedData, pageID: page.id, job: job, into: context)
     }
 
     private func renderPage(

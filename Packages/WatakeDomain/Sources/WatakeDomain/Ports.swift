@@ -150,6 +150,37 @@ public protocol DocumentOCRPersisting: Sendable {
     func saveDocument(_ document: StoredDocument) async throws
 }
 
+/// Narrow persistence boundary for non-destructive page editing. Metadata
+/// commits remain actor-serialized; imported image assets may be staged first
+/// and are invisible until referenced by a committed document.
+public protocol DocumentEditingStore: Sendable {
+    func document(id: UUID) async throws -> StoredDocument?
+    func folders() async throws -> [Folder]
+    func documents(in folderId: UUID) async throws -> [StoredDocument]
+    func readAsset(_ reference: AssetReference) async throws -> Data
+    func stageAnnotationAsset(_ data: Data, reference: AssetReference) async throws
+    func discardAnnotationAssets(_ references: [AssetReference]) async
+    func saveEditedDocument(_ document: StoredDocument) async throws
+    func saveDocumentCopy(_ document: StoredDocument, sourceDocumentID: UUID) async throws
+    func savedSignatures() async throws -> [SavedSignature]
+    func saveSignature(_ signature: SavedSignature) async throws
+    func deleteSignature(id: UUID) async throws
+    func recoveryDraft(documentID: UUID) async throws -> DocumentEditRecoveryDraft?
+    func saveRecoveryDraft(_ draft: DocumentEditRecoveryDraft) async throws
+    func deleteRecoveryDraft(documentID: UUID) async throws
+}
+
+/// Shared bitmap boundary used by viewer previews, PDF export, and watermark
+/// issuance. Implementations must draw annotations in ascending z-index.
+public protocol PageAnnotationRendering: Sendable {
+    func renderJPEG(
+        sourceData: Data,
+        annotations: [PageAnnotation],
+        maximumPixelDimension: Int?,
+        quality: Double
+    ) async throws -> Data
+}
+
 /// Privacy-safe OCR failures. Never include recognized text, asset paths, or
 /// framework error payloads.
 public enum OCRRecognitionError: Error, Equatable, Sendable {

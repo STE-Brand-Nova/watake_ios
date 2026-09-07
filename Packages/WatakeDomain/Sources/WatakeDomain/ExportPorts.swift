@@ -47,16 +47,18 @@ public struct PDFRenderJob: Equatable, Sendable {
     }
 }
 
-/// One page to render, carrying the asset reference for the renderer to load.
+/// One page to render, carrying source and editable overlay metadata.
 public struct PDFRenderPage: Equatable, Sendable {
     /// The `DocumentPage.id`.
     public let id: UUID
     /// The best-available asset reference for this page.
     public let assetReference: AssetReference
+    public let annotations: [PageAnnotation]
 
-    public init(id: UUID, assetReference: AssetReference) {
+    public init(id: UUID, assetReference: AssetReference, annotations: [PageAnnotation] = []) {
         self.id = id
         self.assetReference = assetReference
+        self.annotations = annotations
     }
 }
 

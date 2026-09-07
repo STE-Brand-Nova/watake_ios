@@ -1,5 +1,6 @@
 #if canImport(UIKit)
     import DesignSystem
+    import DocumentEditorFeature
     import SwiftUI
     import WatakeDomain
     import WatermarkEditorFeature
@@ -14,6 +15,7 @@
     public struct DocumentViewerView: View {
         @Bindable private var model: DocumentViewerModel
         private let presetStore: any WatermarkPresetStore
+        private let editingStore: (any DocumentEditingStore)?
         private let onClose: (() -> Void)?
         private let onWatermarkRequested: ((UUID) -> Void)?
         private let watermarkedCopies: [DocumentWatermarkedCopySummary]
@@ -23,8 +25,10 @@
         private let onMoveRequested: ((StoredDocument) -> Void)?
         private let onExportRequested: ((StoredDocument) -> Void)?
         private let onDeleteRequested: ((StoredDocument) -> Void)?
+        private let onEditPersisted: ((StoredDocument, Bool) -> Void)?
         @FocusState private var isViewerFocused: Bool
         @State private var watermarkEditor: WatermarkEditorPresentation?
+        @State private var documentEditor: DocumentEditorPresentation?
         @State private var pageOrganizer: OrganizePagesPresentation?
         @State private var documentPendingDeletion: StoredDocument?
         @State private var showsPageOrganizationConfirmation = false
@@ -35,6 +39,7 @@
         public init(
             model: DocumentViewerModel,
             presetStore: any WatermarkPresetStore = UnavailableWatermarkPresetStore(),
+            editingStore: (any DocumentEditingStore)? = nil,
             onWatermarkRequested: ((UUID) -> Void)? = nil,
             watermarkedCopies: [DocumentWatermarkedCopySummary] = [],
             onWatermarkedCopyRequested: ((UUID) -> Void)? = nil,
@@ -43,10 +48,12 @@
             onMoveRequested: ((StoredDocument) -> Void)? = nil,
             onExportRequested: ((StoredDocument) -> Void)? = nil,
             onDeleteRequested: ((StoredDocument) -> Void)? = nil,
+            onEditPersisted: ((StoredDocument, Bool) -> Void)? = nil,
             onClose: (() -> Void)? = nil
         ) {
             self.model = model
             self.presetStore = presetStore
+            self.editingStore = editingStore
             self.onWatermarkRequested = onWatermarkRequested
             self.watermarkedCopies = watermarkedCopies
             self.onWatermarkedCopyRequested = onWatermarkedCopyRequested
@@ -55,6 +62,7 @@
             self.onMoveRequested = onMoveRequested
             self.onExportRequested = onExportRequested
             self.onDeleteRequested = onDeleteRequested
+            self.onEditPersisted = onEditPersisted
             self.onClose = onClose
         }
 
@@ -79,6 +87,11 @@
             .fullScreenCover(item: $watermarkEditor) { presentation in
                 WatermarkEditorView(model: presentation.model, sourceImageData: presentation.sourceImageData) {
                     watermarkEditor = nil
+                }
+            }
+            .fullScreenCover(item: $documentEditor) { presentation in
+                DocumentEditorView(model: presentation.model, onExportRequested: onExportRequested) {
+                    documentEditor = nil
                 }
             }
             .fullScreenCover(item: $pageOrganizer) { presentation in
@@ -166,8 +179,31 @@
 
         @ToolbarContentBuilder
         private func viewerToolbar(_ content: DocumentViewerContent) -> some ToolbarContent {
+            if editingStore != nil {
+                ToolbarItem(placement: .topBarTrailing) { editButton(content.document) }
+            }
             ToolbarItem(placement: .topBarTrailing) { watermarkButton(content) }
             ToolbarItem(placement: .topBarTrailing) { documentActionsMenu(content) }
+        }
+
+        private func editButton(_ document: StoredDocument) -> some View {
+            Button {
+                guard let editingStore else { return }
+                documentEditor = DocumentEditorPresentation(
+                    document: document,
+                    store: editingStore,
+                    onPersisted: { updated, isCopy in
+                        if !isCopy {
+                            model.acceptPersistedDocument(updated)
+                        }
+                        onEditPersisted?(updated, isCopy)
+                    }
+                )
+            } label: {
+                Label("Edit", systemImage: "pencil.and.outline")
+            }
+            .disabled(model.ocrState.isExtracting)
+            .accessibilityHint("Adds editable text, signatures, images, and highlights")
         }
 
         private func watermarkButton(_ content: DocumentViewerContent) -> some View {
@@ -276,6 +312,20 @@
     private struct OrganizePagesPresentation: Identifiable {
         let id = UUID()
         let model: OrganizePagesModel
+    }
+
+    @MainActor
+    private struct DocumentEditorPresentation: Identifiable {
+        let id = UUID()
+        let model: DocumentEditorModel
+
+        init(
+            document: StoredDocument,
+            store: any DocumentEditingStore,
+            onPersisted: @escaping @MainActor @Sendable (StoredDocument, Bool) -> Void
+        ) {
+            model = DocumentEditorModel(document: document, store: store, onPersisted: onPersisted)
+        }
     }
 
     private struct PageOrganizationConfirmation: View {
