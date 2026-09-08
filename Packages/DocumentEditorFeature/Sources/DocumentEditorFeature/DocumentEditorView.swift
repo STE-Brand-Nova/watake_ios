@@ -14,8 +14,10 @@
         @State private var showsSaveCopy = false
         @State private var showsSignature = false
         @State private var showsPageTargets = false
+        @State private var showsTextStyle = false
         @State private var showsFileImporter = false
         @State private var photoItem: PhotosPickerItem?
+        @State private var textEntry: TextEntryDraft?
 
         public init(
             model: DocumentEditorModel,
@@ -72,6 +74,7 @@
             .sheet(isPresented: $showsSaveCopy) { SaveCopySheet(model: model) }
             .sheet(isPresented: $showsSignature) { SignatureSheet(model: model) }
             .sheet(isPresented: $showsPageTargets) { PageTargetsSheet(model: model) }
+            .sheet(isPresented: $showsTextStyle) { TextStyleSheet(model: model) }
             .alert("Discard changes?", isPresented: $asksToDiscard) {
                 Button("Keep Editing", role: .cancel) {}
                 Button("Discard", role: .destructive) {
@@ -111,6 +114,20 @@
                         .padding(WatakeSpacing.md)
                 }
             }
+            .overlay {
+                if let textEntry {
+                    TextEntryOverlay(
+                        title: textEntry.annotationID == nil ? "Add text" : "Edit text",
+                        initialText: textEntry.text,
+                        onCancel: cancelTextEntry,
+                        onSave: { saveTextEntry($0, draft: textEntry) }
+                    )
+                    .id(textEntry.id)
+                    .padding(.horizontal, WatakeSpacing.lg)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: textEntry != nil)
         }
 
         @ToolbarContentBuilder
@@ -168,12 +185,17 @@
         private func editor(widthClass: WatakeWidthClass) -> some View {
             if widthClass == .compact {
                 VStack(spacing: 0) {
-                    DocumentCanvas(model: model)
+                    DocumentCanvas(model: model, editText: beginEditingText, showTextStyle: showTextStyle)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     PageRail(model: model, axis: .horizontal)
                         .frame(height: 92)
-                    ToolDock(model: model, photoItem: $photoItem, showSignature: { showsSignature = true })
-                    if model.selectedAnnotation != nil {
+                    ToolDock(
+                        model: model,
+                        photoItem: $photoItem,
+                        addText: beginAddingText,
+                        showSignature: { showsSignature = true }
+                    )
+                    if let annotation = model.selectedAnnotation, annotation.kind != .text {
                         AnnotationInspector(model: model, showPageTargets: { showsPageTargets = true })
                     }
                 }
@@ -184,9 +206,14 @@
                         .background(WatakeColor.surface.raised)
                     Divider()
                     VStack(spacing: 0) {
-                        DocumentCanvas(model: model)
+                        DocumentCanvas(model: model, editText: beginEditingText, showTextStyle: showTextStyle)
                             .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-                        ToolDock(model: model, photoItem: $photoItem, showSignature: { showsSignature = true })
+                        ToolDock(
+                            model: model,
+                            photoItem: $photoItem,
+                            addText: beginAddingText,
+                            showSignature: { showsSignature = true }
+                        )
                     }
                     Divider()
                     ScrollView {
@@ -217,18 +244,72 @@
                 }
             })
         }
+
+        private func beginAddingText() {
+            model.activateTool(.text)
+            model.selectAnnotation(nil)
+            textEntry = TextEntryDraft(annotationID: nil, text: "")
+        }
+
+        private func beginEditingText(_ annotationID: UUID) {
+            model.selectAnnotation(annotationID)
+            guard let text = model.selectedAnnotation?.text?.text else { return }
+            textEntry = TextEntryDraft(annotationID: annotationID, text: text)
+        }
+
+        private func saveTextEntry(_ value: String, draft: TextEntryDraft) {
+            if let annotationID = draft.annotationID {
+                model.selectAnnotation(annotationID)
+                guard let current = model.selectedAnnotation?.text else { return }
+                model.updateSelectedText(AnnotationText(
+                    text: value,
+                    fontName: current.fontName,
+                    fontSize: current.fontSize,
+                    colorHex: current.colorHex,
+                    alignment: current.alignment,
+                    isBold: current.isBold,
+                    isItalic: current.isItalic,
+                    isUnderlined: current.isUnderlined
+                ))
+            } else {
+                model.addText(value)
+            }
+            textEntry = nil
+        }
+
+        private func cancelTextEntry() {
+            textEntry = nil
+            if model.selectedAnnotation == nil {
+                model.activateTool(.select)
+            }
+        }
+
+        private func showTextStyle(_ annotationID: UUID) {
+            model.selectAnnotation(annotationID)
+            showsTextStyle = true
+        }
+    }
+
+    private struct TextEntryDraft: Identifiable {
+        let id = UUID()
+        let annotationID: UUID?
+        let text: String
     }
 
     private struct ToolDock: View {
         @Bindable var model: DocumentEditorModel
         @Binding var photoItem: PhotosPickerItem?
+        let addText: () -> Void
         let showSignature: () -> Void
 
         var body: some View {
             HStack(spacing: WatakeSpacing.xs) {
-                toolButton(.select, icon: "arrow.up.left.and.arrow.down.right") { model.tool = .select }
-                toolButton(.text, icon: "textformat") { model.addText() }
-                toolButton(.signature, icon: "signature") { showSignature() }
+                toolButton(.select, icon: "arrow.up.left.and.arrow.down.right") { model.activateTool(.select) }
+                toolButton(.text, icon: "textformat", action: addText)
+                toolButton(.signature, icon: "signature") {
+                    model.activateTool(.signature)
+                    showSignature()
+                }
                 PhotosPicker(selection: $photoItem, matching: .images) {
                     VStack(spacing: WatakeSpacing.xxs) {
                         Image(systemName: "photo").font(.body)
@@ -241,7 +322,8 @@
                     .accessibilityLabel("Image")
                 }
                 .buttonStyle(.plain)
-                toolButton(.highlight, icon: "highlighter") { model.tool = .highlight }
+                .simultaneousGesture(TapGesture().onEnded { model.activateTool(.image) })
+                toolButton(.highlight, icon: "highlighter") { model.activateTool(.highlight) }
             }
             .padding(.horizontal, WatakeSpacing.sm)
             .padding(.vertical, WatakeSpacing.xs)
@@ -316,6 +398,8 @@
 
     private struct DocumentCanvas: View {
         @Bindable var model: DocumentEditorModel
+        let editText: (UUID) -> Void
+        let showTextStyle: (UUID) -> Void
         @State private var zoomScale = 1.0
         @State private var lastMagnification = 1.0
 
@@ -326,7 +410,7 @@
                    let image = UIImage(data: data) {
                     let rect = fittedRect(imageSize: image.size, container: proxy.size)
                     ScrollView([.horizontal, .vertical]) {
-                        PageSurface(model: model, image: image)
+                        PageSurface(model: model, image: image, editText: editText, showTextStyle: showTextStyle)
                             .frame(width: rect.width * zoomScale, height: rect.height * zoomScale)
                             .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
@@ -384,6 +468,8 @@
     private struct PageSurface: View {
         @Bindable var model: DocumentEditorModel
         let image: UIImage
+        let editText: (UUID) -> Void
+        let showTextStyle: (UUID) -> Void
         @State private var highlightPoints: [InkPoint] = []
         @State private var highlightStartedAt: Date?
         @State private var highlightLastMovedAt: Date?
@@ -393,13 +479,19 @@
                 ZStack {
                     Color.white
                         .onTapGesture {
-                            if model.tool == .select {
+                            if model.tool == .select || model.tool == .text {
                                 model.selectAnnotation(nil)
                             }
                         }
                     Image(uiImage: image).resizable().scaledToFill().allowsHitTesting(false)
                     ForEach(model.selectedPage?.annotations.sorted(by: { $0.zIndex < $1.zIndex }) ?? []) { annotation in
-                        AnnotationLayer(model: model, annotation: annotation, pageSize: proxy.size)
+                        AnnotationLayer(
+                            model: model,
+                            annotation: annotation,
+                            pageSize: proxy.size,
+                            editText: editText,
+                            showTextStyle: showTextStyle
+                        )
                     }
                     alignmentGuides(size: proxy.size)
                     if model.tool == .highlight {
@@ -482,122 +574,6 @@
                 )
             }
             .allowsHitTesting(true)
-        }
-    }
-
-    private struct AnnotationLayer: View {
-        @Bindable var model: DocumentEditorModel
-        let annotation: PageAnnotation
-        let pageSize: CGSize
-        @State private var dragStart: AnnotationTransform?
-        @State private var lastScale = 1.0
-        @State private var lastRotation = Angle.zero
-
-        var body: some View {
-            content
-                .frame(width: annotation.transform.width * pageSize.width, height: annotation.transform.height * pageSize.height)
-                .overlay {
-                    if model.selectedAnnotationID == annotation.id {
-                        Rectangle().stroke(WatakeColor.brand.primary, style: .init(lineWidth: 2, dash: [6, 4]))
-                    }
-                }
-                .rotationEffect(.degrees(annotation.transform.rotation))
-                .opacity(annotation.opacity)
-                .position(x: annotation.transform.centerX * pageSize.width, y: annotation.transform.centerY * pageSize.height)
-                .contentShape(Rectangle())
-                .onTapGesture { model.selectAnnotation(annotation.id) }
-                .gesture(transformGesture)
-                .accessibilityLabel("\(annotation.kind.rawValue.capitalized) annotation")
-                .accessibilityHint("Double tap to select, then use inspector actions")
-        }
-
-        @ViewBuilder private var content: some View {
-            switch annotation.kind {
-            case .text:
-                if let text = annotation.text {
-                    Text(text.text)
-                        .font(.custom(text.fontName, size: max(10, text.fontSize * min(pageSize.width, pageSize.height))))
-                        .fontWeight(text.isBold ? .bold : .regular)
-                        .italic(text.isItalic)
-                        .underline(text.isUnderlined)
-                        .foregroundStyle(contentColor(text.colorHex))
-                        .multilineTextAlignment(swiftAlignment(text.alignment))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment(text.alignment))
-                }
-            case .signature, .highlight:
-                StrokeCanvas(strokes: annotation.strokes)
-            case .image:
-                if let reference = annotation.image,
-                   let data = model.annotationImages[reference.id],
-                   let image = UIImage(data: data) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                }
-            }
-        }
-
-        private var transformGesture: some Gesture {
-            let drag = DragGesture().onChanged { value in
-                guard model.tool == .select else { return }
-                if dragStart == nil {
-                    model.selectAnnotation(annotation.id)
-                    dragStart = annotation.transform
-                    model.beginContinuousEdit()
-                }
-                guard let start = dragStart else { return }
-                model.transformSelected(
-                    centerX: start.centerX + value.translation.width / pageSize.width,
-                    centerY: start.centerY + value.translation.height / pageSize.height
-                )
-            }.onEnded { _ in
-                dragStart = nil
-                model.endContinuousEdit()
-            }
-            let scale = MagnifyGesture().onChanged { value in
-                guard model.tool == .select else { return }
-                if lastScale == 1 {
-                    model.selectAnnotation(annotation.id)
-                    model.beginContinuousEdit()
-                }
-                model.transformSelected(scale: value.magnification / lastScale)
-                lastScale = value.magnification
-            }.onEnded { _ in
-                lastScale = 1
-                model.endContinuousEdit()
-            }
-            let rotate = RotateGesture().onChanged { value in
-                guard model.tool == .select else { return }
-                if lastRotation == .zero {
-                    model.selectAnnotation(annotation.id)
-                    model.beginContinuousEdit()
-                }
-                model.transformSelected(rotationDelta: value.rotation.degrees - lastRotation.degrees)
-                lastRotation = value.rotation
-            }.onEnded { _ in
-                lastRotation = .zero
-                model.endContinuousEdit()
-            }
-            return drag.simultaneously(with: scale).simultaneously(with: rotate)
-        }
-    }
-
-    private struct StrokeCanvas: View {
-        let strokes: [InkStroke]
-        var body: some View {
-            Canvas { context, size in
-                for stroke in strokes {
-                    guard let first = stroke.points.first else { continue }
-                    var path = Path()
-                    path.move(to: CGPoint(x: first.location.x * size.width, y: first.location.y * size.height))
-                    for point in stroke.points.dropFirst() {
-                        path.addLine(to: CGPoint(x: point.location.x * size.width, y: point.location.y * size.height))
-                    }
-                    context.stroke(
-                        path,
-                        with: .color(contentColor(stroke.colorHex).opacity(stroke.opacity)),
-                        style: .init(lineWidth: max(1, stroke.width * min(size.width, size.height)), lineCap: .round, lineJoin: .round)
-                    )
-                }
-            }
         }
     }
 

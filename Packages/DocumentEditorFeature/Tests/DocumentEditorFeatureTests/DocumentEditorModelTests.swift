@@ -6,6 +6,52 @@ import WatakeDomain
 @Suite("Document editor")
 struct DocumentEditorModelTests {
     @Test @MainActor
+    func addedTextKeepsEnteredContentAndStartsSelectedTextMode() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+
+        model.addText("Review completed")
+
+        #expect(model.selectedAnnotation?.text?.text == "Review completed")
+        #expect(model.tool == .text)
+    }
+
+    @Test @MainActor
+    func textSelectionIsExclusiveAndLeavingTextModeClearsIt() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText("First")
+        let firstID = model.selectedAnnotationID
+        model.addText("Second")
+        let secondID = model.selectedAnnotationID
+
+        model.selectAnnotation(firstID)
+        #expect(model.selectedAnnotationID == firstID)
+        #expect(model.selectedAnnotationID != secondID)
+
+        model.activateTool(.highlight)
+        #expect(model.selectedAnnotationID == nil)
+        #expect(model.tool == .highlight)
+    }
+
+    @Test @MainActor
+    func textBoxCanResizeWidthAndHeightIndependentlyAsOneCommand() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText("Resizable")
+
+        model.beginContinuousEdit()
+        model.transformSelected(width: 0.7, height: 0.2)
+        model.endContinuousEdit()
+
+        #expect(model.selectedAnnotation?.transform.width == 0.7)
+        #expect(model.selectedAnnotation?.transform.height == 0.2)
+        model.undo()
+        #expect(model.selectedPage?.annotations.first?.transform.width == 0.58)
+        #expect(model.selectedPage?.annotations.first?.transform.height == 0.12)
+    }
+
+    @Test @MainActor
     func historyIsIndependentForEveryPage() {
         let fixture = EditorFixture()
         let (model, _) = fixture.makeModel()

@@ -155,18 +155,29 @@ extension DocumentEditorModel {
 
     public func selectAnnotation(_ annotationID: UUID?) {
         selectedAnnotationID = annotationID
-        tool = .select
+        guard let annotationID,
+              let annotation = selectedPage?.annotations.first(where: { $0.id == annotationID }) else { return }
+        tool = annotation.kind == .text ? .text : .select
+    }
+
+    public func activateTool(_ tool: DocumentEditorTool) {
+        if tool != .text, selectedAnnotation?.kind == .text {
+            selectedAnnotationID = nil
+        }
+        self.tool = tool
     }
 }
 
 extension DocumentEditorModel {
-    public func addText() {
+    public func addText(_ value: String = "Text") {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
         let annotation = PageAnnotation(
             id: makeUUID(),
             kind: .text,
             transform: .init(centerX: 0.5, centerY: 0.3, width: 0.58, height: 0.12),
             zIndex: nextZIndex,
-            text: AnnotationText(text: "Text")
+            text: AnnotationText(text: value)
         )
         append(annotation)
     }
@@ -305,7 +316,14 @@ extension DocumentEditorModel {
         continuousBaseline = selectedPage?.annotations
     }
 
-    public func transformSelected(centerX: Double? = nil, centerY: Double? = nil, scale: Double = 1, rotationDelta: Double = 0) {
+    public func transformSelected(
+        centerX: Double? = nil,
+        centerY: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil,
+        scale: Double = 1,
+        rotationDelta: Double = 0
+    ) {
         guard let selectedAnnotation else { return }
         let old = selectedAnnotation.transform
         let snappedX = snap(centerX ?? old.centerX)
@@ -313,8 +331,8 @@ extension DocumentEditorModel {
         let transformed = AnnotationTransform(
             centerX: min(max(snappedX, 0), 1),
             centerY: min(max(snappedY, 0), 1),
-            width: min(max(old.width * scale, 0.01), 1),
-            height: min(max(old.height * scale, 0.01), 1),
+            width: min(max(width ?? old.width * scale, 0.01), 1),
+            height: min(max(height ?? old.height * scale, 0.01), 1),
             rotation: normalizedRotation(old.rotation + rotationDelta)
         )
         replaceSelected(recordHistory: continuousBaseline == nil) { current in
@@ -497,7 +515,7 @@ extension DocumentEditorModel {
         guard let page = selectedPage else { return }
         setAnnotations(page.annotations + [annotation], recording: page.annotations)
         selectedAnnotationID = annotation.id
-        tool = .select
+        tool = annotation.kind == .text ? .text : .select
     }
 
     private func replaceSelected(recordHistory: Bool = true, _ transform: (PageAnnotation) -> PageAnnotation) {
