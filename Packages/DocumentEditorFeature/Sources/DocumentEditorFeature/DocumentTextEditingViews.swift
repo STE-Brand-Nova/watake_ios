@@ -134,7 +134,7 @@
             VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                 Text("Text color").watakeType(.bodyEmphasis)
                 HStack(spacing: WatakeSpacing.sm) {
-                    ForEach(["#0B1220", "#1F4FEB", "#B91C1C", "#FBBF24"], id: \.self) { hex in
+                    ForEach(DocumentEditorPalette.textColors, id: \.self) { hex in
                         Button { update(text, color: hex) } label: {
                             Circle()
                                 .fill(textColor(hex))
@@ -149,7 +149,7 @@
                                 .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Choose color \(hex)")
+                        .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
                     }
                 }
             }

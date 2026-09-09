@@ -104,7 +104,16 @@
                 Text(model.errorMessage ?? "")
             }
             .overlay(alignment: .bottom) {
-                if model.saveState == .savedCopy {
+                if let toastMessage = model.toastMessage {
+                    Label(toastMessage, systemImage: "checkmark.circle.fill")
+                        .watakeType(.bodyEmphasis)
+                        .padding(.horizontal, WatakeSpacing.md)
+                        .padding(.vertical, WatakeSpacing.sm)
+                        .background(WatakeColor.surface.raised)
+                        .clipShape(Capsule())
+                        .padding(WatakeSpacing.md)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                } else if model.saveState == .savedCopy {
                     Label("Copy saved", systemImage: "checkmark.circle.fill")
                         .watakeType(.bodyEmphasis)
                         .padding(.horizontal, WatakeSpacing.md)
@@ -113,6 +122,12 @@
                         .clipShape(Capsule())
                         .padding(WatakeSpacing.md)
                 }
+            }
+            .task(id: model.toastRevision) {
+                guard model.toastMessage != nil else { return }
+                let revision = model.toastRevision
+                try? await Task.sleep(for: .seconds(3))
+                model.clearToast(revision: revision)
             }
             .overlay {
                 if let textEntry {
@@ -505,6 +520,7 @@
                 .overlay(Rectangle().stroke(WatakeColor.border.strong, lineWidth: 1))
                 .accessibilityLabel("Editable document page")
             }
+            .coordinateSpace(name: DocumentAnnotationInteraction.pageCoordinateSpace)
         }
 
         @ViewBuilder
@@ -661,7 +677,9 @@
                     get: { model.selectedAnnotation?.text?.fontSize ?? 0.04 },
                     set: { updateStyle(text, size: $0) }
                 ), in: 0.01 ... 0.15)
-                colorButtons(current: text.colorHex) { updateStyle(text, color: $0) }
+                colorButtons(current: text.colorHex, colors: DocumentEditorPalette.textColors) {
+                    updateStyle(text, color: $0)
+                }
             }
         }
 
@@ -675,21 +693,21 @@
                         model.updateSelectedStrokeStyle(width: $0, colorHex: stroke?.colorHex ?? "#0B1220", opacity: stroke?.opacity ?? 1)
                     }
                 ), in: 0.002 ... 0.08)
-                colorButtons(current: stroke?.colorHex ?? "#0B1220") {
+                colorButtons(current: stroke?.colorHex ?? "#0B1220", colors: DocumentEditorPalette.strokeColors) {
                     model.updateSelectedStrokeStyle(width: stroke?.width ?? 0.02, colorHex: $0, opacity: stroke?.opacity ?? 1)
                 }
             }
         }
 
-        private func colorButtons(current: String, update: @escaping (String) -> Void) -> some View {
+        private func colorButtons(current: String, colors: [String], update: @escaping (String) -> Void) -> some View {
             HStack {
-                ForEach(["#0B1220", "#1F4FEB", "#B91C1C", "#FBBF24"], id: \.self) { hex in
+                ForEach(colors, id: \.self) { hex in
                     Button { update(hex) } label: {
                         Circle().fill(contentColor(hex)).frame(width: 28, height: 28)
                             .overlay(Circle().stroke(current == hex ? WatakeColor.brand.primary : WatakeColor.border.strong, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Choose color \(hex)")
+                    .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
                 }
             }
         }

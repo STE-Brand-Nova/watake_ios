@@ -52,6 +52,49 @@ struct DocumentEditorModelTests {
     }
 
     @Test @MainActor
+    func deletingSelectedTextRemovesItAndPublishesSuccessToast() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText("Delete me")
+
+        model.deleteSelected()
+
+        #expect(model.selectedPage?.annotations.isEmpty == true)
+        #expect(model.selectedAnnotationID == nil)
+        #expect(model.toastMessage == "Text deleted")
+        let revision = model.toastRevision
+        model.clearToast(revision: revision)
+        #expect(model.toastMessage == nil)
+    }
+
+    @Test
+    func textInteractionPreviewUsesStablePageRelativeGeometry() {
+        let start = AnnotationTransform(centerX: 0.4, centerY: 0.3, width: 0.2, height: 0.1)
+        let moved = DocumentAnnotationInteraction.moved(
+            from: start,
+            translation: CGSize(width: 50, height: 100),
+            pageSize: CGSize(width: 500, height: 1000)
+        )
+        let resized = DocumentAnnotationInteraction.resized(
+            from: start,
+            translation: CGSize(width: 100, height: 200),
+            pageSize: CGSize(width: 500, height: 1000)
+        )
+
+        #expect(abs(moved.centerX - 0.5) < 0.000_001)
+        #expect(abs(moved.centerY - 0.4) < 0.000_001)
+        #expect(abs(resized.width - 0.4) < 0.000_001)
+        #expect(abs(resized.height - 0.3) < 0.000_001)
+        #expect(abs(resized.centerX - 0.5) < 0.000_001)
+        #expect(abs(resized.centerY - 0.4) < 0.000_001)
+    }
+
+    @Test
+    func textPaletteIncludesWhite() {
+        #expect(DocumentEditorPalette.textColors.contains("#FFFFFF"))
+    }
+
+    @Test @MainActor
     func historyIsIndependentForEveryPage() {
         let fixture = EditorFixture()
         let (model, _) = fixture.makeModel()

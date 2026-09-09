@@ -11,6 +11,7 @@
         let showTextStyle: (UUID) -> Void
         @State private var dragStart: AnnotationTransform?
         @State private var resizeStart: AnnotationTransform?
+        @State private var interactionTransform: AnnotationTransform?
         @State private var lastScale = 1.0
         @State private var lastRotation = Angle.zero
 
@@ -26,7 +27,7 @@
                         }
                     }
                     .gesture(moveGesture)
-                if isSelected {
+                if isSelected, dragStart == nil {
                     Rectangle()
                         .stroke(WatakeColor.brand.primary, lineWidth: 2)
                         .allowsHitTesting(false)
@@ -35,10 +36,10 @@
                     }
                 }
             }
-            .frame(width: annotation.transform.width * pageSize.width, height: annotation.transform.height * pageSize.height)
-            .rotationEffect(.degrees(annotation.transform.rotation))
+            .frame(width: displayedTransform.width * pageSize.width, height: displayedTransform.height * pageSize.height)
+            .rotationEffect(.degrees(displayedTransform.rotation))
             .opacity(annotation.opacity)
-            .position(x: annotation.transform.centerX * pageSize.width, y: annotation.transform.centerY * pageSize.height)
+            .position(x: displayedTransform.centerX * pageSize.width, y: displayedTransform.centerY * pageSize.height)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("\(annotation.kind.rawValue.capitalized) annotation")
             .accessibilityHint("Tap to select. Tap selected text again to edit content.")
@@ -50,6 +51,10 @@
 
         private var isSelected: Bool {
             model.selectedAnnotationID == annotation.id
+        }
+
+        private var displayedTransform: AnnotationTransform {
+            interactionTransform ?? annotation.transform
         }
 
         private var textSelectionControls: some View {
@@ -71,7 +76,7 @@
                 }
                 .position(x: 0, y: proxy.size.height)
 
-                selectionButton(icon: "arrow.down.right.and.arrow.up.left", label: "Resize text") {}
+                selectionHandle(icon: "arrow.down.right.and.arrow.up.left", label: "Resize text")
                     .position(x: proxy.size.width, y: proxy.size.height)
                     .gesture(resizeGesture)
             }
@@ -84,41 +89,59 @@
             action: @escaping () -> Void
         ) -> some View {
             Button(role: role, action: action) {
-                Image(systemName: icon)
-                    .font(.body.weight(.semibold))
-                    .frame(width: 44, height: 44)
-                    .foregroundStyle(role == .destructive ? WatakeColor.status.danger : WatakeColor.brand.primary)
-                    .background(WatakeColor.surface.raised)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(WatakeColor.border.strong, lineWidth: 1))
+                selectionControl(icon: icon, role: role)
             }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
             .buttonStyle(.plain)
             .accessibilityLabel(label)
         }
 
+        private func selectionHandle(icon: String, label: String) -> some View {
+            selectionControl(icon: icon)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .accessibilityElement()
+                .accessibilityLabel(label)
+                .accessibilityAddTraits(.isButton)
+        }
+
+        private func selectionControl(icon: String, role: ButtonRole? = nil) -> some View {
+            let diameter = min(max(min(pageSize.width, pageSize.height) * 0.075, 26), 32)
+            return Image(systemName: icon)
+                .font(.system(size: diameter * 0.42, weight: .semibold))
+                .frame(width: diameter, height: diameter)
+                .foregroundStyle(role == .destructive ? WatakeColor.status.danger : WatakeColor.brand.primary)
+                .background(WatakeColor.surface.raised)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(WatakeColor.border.strong, lineWidth: 1))
+        }
+
         private var resizeGesture: some Gesture {
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
                 .onChanged { value in
                     if resizeStart == nil {
                         model.selectAnnotation(annotation.id)
                         resizeStart = annotation.transform
-                        model.beginContinuousEdit()
                     }
                     guard let start = resizeStart else { return }
-                    let proposedWidth = max(0.08, start.width + value.translation.width / pageSize.width)
-                    let proposedHeight = max(0.04, start.height + value.translation.height / pageSize.height)
-                    let width = min(proposedWidth, 1)
-                    let height = min(proposedHeight, 1)
-                    model.transformSelected(
-                        centerX: start.centerX + (width - start.width) / 2,
-                        centerY: start.centerY + (height - start.height) / 2,
-                        width: width,
-                        height: height
+                    interactionTransform = DocumentAnnotationInteraction.resized(
+                        from: start,
+                        translation: value.translation,
+                        pageSize: pageSize
                     )
                 }
                 .onEnded { _ in
+                    guard let transform = interactionTransform, resizeStart != nil else { return }
+                    model.selectAnnotation(annotation.id)
+                    model.transformSelected(
+                        centerX: transform.centerX,
+                        centerY: transform.centerY,
+                        width: transform.width,
+                        height: transform.height
+                    )
                     resizeStart = nil
-                    model.endContinuousEdit()
+                    interactionTransform = nil
                 }
         }
 
@@ -147,24 +170,40 @@
         }
 
         private var moveGesture: some Gesture {
-            DragGesture()
+            DragGesture(coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
                 .onChanged { value in
                     guard canTransform else { return }
                     if dragStart == nil {
                         model.selectAnnotation(annotation.id)
                         dragStart = annotation.transform
-                        model.beginContinuousEdit()
+                        if annotation.kind != .text {
+                            model.beginContinuousEdit()
+                        }
                     }
                     guard let start = dragStart else { return }
-                    model.transformSelected(
-                        centerX: start.centerX + value.translation.width / pageSize.width,
-                        centerY: start.centerY + value.translation.height / pageSize.height
-                    )
+                    if annotation.kind == .text {
+                        interactionTransform = DocumentAnnotationInteraction.moved(
+                            from: start,
+                            translation: value.translation,
+                            pageSize: pageSize
+                        )
+                    } else {
+                        model.transformSelected(
+                            centerX: start.centerX + value.translation.width / pageSize.width,
+                            centerY: start.centerY + value.translation.height / pageSize.height
+                        )
+                    }
                 }
                 .onEnded { _ in
                     guard dragStart != nil else { return }
+                    if annotation.kind == .text, let transform = interactionTransform {
+                        model.selectAnnotation(annotation.id)
+                        model.transformSelected(centerX: transform.centerX, centerY: transform.centerY)
+                    } else if annotation.kind != .text {
+                        model.endContinuousEdit()
+                    }
                     dragStart = nil
-                    model.endContinuousEdit()
+                    interactionTransform = nil
                 }
                 .simultaneously(with: scaleAndRotationGesture)
         }

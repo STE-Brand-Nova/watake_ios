@@ -62,6 +62,8 @@ public final class DocumentEditorModel {
     public private(set) var annotationImages: [UUID: Data] = [:]
     public private(set) var recoveryDraftAvailable = false
     public private(set) var errorMessage: String?
+    public private(set) var toastMessage: String?
+    public private(set) var toastRevision = 0
 
     private let store: any DocumentEditingStore
     private let now: @Sendable () -> Date
@@ -355,9 +357,14 @@ extension DocumentEditorModel {
 
 extension DocumentEditorModel {
     public func deleteSelected() {
-        guard let selectedAnnotationID, let page = selectedPage else { return }
+        guard let selectedAnnotationID, let page = selectedPage,
+              let annotation = page.annotations.first(where: { $0.id == selectedAnnotationID }) else { return }
         setAnnotations(page.annotations.filter { $0.id != selectedAnnotationID }, recording: page.annotations)
         self.selectedAnnotationID = nil
+        if annotation.kind == .text {
+            toastRevision += 1
+            toastMessage = "Text deleted"
+        }
     }
 
     public func duplicateSelected(to pageIDs: Set<UUID>? = nil) {
@@ -503,6 +510,11 @@ extension DocumentEditorModel {
 
     public func clearMessage() {
         errorMessage = nil
+    }
+
+    public func clearToast(revision: Int) {
+        guard toastRevision == revision else { return }
+        toastMessage = nil
     }
 }
 
