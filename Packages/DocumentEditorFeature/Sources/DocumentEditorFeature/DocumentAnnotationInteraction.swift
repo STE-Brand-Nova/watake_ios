@@ -25,14 +25,41 @@ enum DocumentAnnotationInteraction {
         pageSize: CGSize
     ) -> AnnotationTransform {
         guard pageSize.width > 0, pageSize.height > 0 else { return start }
-        let width = min(max(0.08, start.width + translation.width / pageSize.width), 1)
-        let height = min(max(0.04, start.height + translation.height / pageSize.height), 1)
+        let radians = start.rotation * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let localX = cosine * translation.width + sine * translation.height
+        let localY = -sine * translation.width + cosine * translation.height
+        let width = min(max(0.08, start.width + localX / pageSize.width), 1)
+        let height = min(max(0.04, start.height + localY / pageSize.height), 1)
+        let localCenterShift = CGPoint(
+            x: (width - start.width) * pageSize.width / 2,
+            y: (height - start.height) * pageSize.height / 2
+        )
+        let pageCenterShift = CGPoint(
+            x: cosine * localCenterShift.x - sine * localCenterShift.y,
+            y: sine * localCenterShift.x + cosine * localCenterShift.y
+        )
         return AnnotationTransform(
-            centerX: clampedCenter(start.centerX + (width - start.width) / 2),
-            centerY: clampedCenter(start.centerY + (height - start.height) / 2),
+            centerX: clampedCenter(start.centerX + pageCenterShift.x / pageSize.width),
+            centerY: clampedCenter(start.centerY + pageCenterShift.y / pageSize.height),
             width: width,
             height: height,
             rotation: start.rotation
+        )
+    }
+
+    static func scaledAndRotated(
+        from start: AnnotationTransform,
+        scale: Double,
+        rotationDelta: Double
+    ) -> AnnotationTransform {
+        AnnotationTransform(
+            centerX: start.centerX,
+            centerY: start.centerY,
+            width: min(max(start.width * scale, 0.01), 1),
+            height: min(max(start.height * scale, 0.01), 1),
+            rotation: normalizedRotation(start.rotation + rotationDelta)
         )
     }
 

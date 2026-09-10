@@ -90,6 +90,29 @@ struct DocumentEditorModelTests {
     }
 
     @Test
+    func rotatedTextResizeFollowsItsLocalAxesAndKeepsOppositeCornerFixed() {
+        let start = AnnotationTransform(centerX: 0.4, centerY: 0.3, width: 0.2, height: 0.1, rotation: 90)
+        let resized = DocumentAnnotationInteraction.resized(
+            from: start,
+            translation: CGSize(width: 0, height: 100),
+            pageSize: CGSize(width: 500, height: 1000)
+        )
+
+        #expect(abs(resized.width - 0.4) < 0.000_001)
+        #expect(abs(resized.height - 0.1) < 0.000_001)
+        #expect(abs(resized.centerX - 0.4) < 0.000_001)
+        #expect(abs(resized.centerY - 0.35) < 0.000_001)
+    }
+
+    @Test
+    func scaleRotationPreviewReturnsToOriginalWithoutPersistentState() {
+        let start = AnnotationTransform(centerX: 0.4, centerY: 0.3, width: 0.2, height: 0.1, rotation: 30)
+        let returned = DocumentAnnotationInteraction.scaledAndRotated(from: start, scale: 1, rotationDelta: 0)
+
+        #expect(returned == start)
+    }
+
+    @Test
     func textRotationPreviewUsesStablePageRelativeAngle() {
         let start = AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.2, rotation: 15)
         let rotated = DocumentAnnotationInteraction.rotated(
@@ -123,6 +146,17 @@ struct DocumentEditorModelTests {
     @Test
     func textPaletteIncludesWhite() {
         #expect(DocumentEditorPalette.textColors.contains("#FFFFFF"))
+    }
+
+    @Test @MainActor
+    func textInputIsLengthBoundedAndInvalidUpdatesDoNotPoisonDraft() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText(String(repeating: "x", count: AnnotationText.maximumLength + 20))
+
+        #expect(model.selectedAnnotation?.text?.text.count == AnnotationText.maximumLength)
+        model.updateSelectedText(AnnotationText(text: "   \n"))
+        #expect(model.selectedAnnotation?.text?.text.count == AnnotationText.maximumLength)
     }
 
     @Test @MainActor
@@ -223,6 +257,62 @@ struct DocumentEditorModelTests {
 
         #expect(await store.currentRecovery() == nil)
     }
+
+    @Test @MainActor
+    func recoveryLoadsDraftImageWhenPagePixelsAreAlreadyCached() async throws {
+        let fixture = EditorFixture()
+        let (model, store) = fixture.makeModel()
+        await model.loadPageImage(for: fixture.firstPageID)
+        let imageData = Data("recovered annotation image".utf8)
+        let image = AssetReference(
+            id: UUID(),
+            relativePath: "annotations/recovered.png",
+            sha256Hex: String(repeating: "c", count: 64),
+            byteSize: imageData.count,
+            mediaType: "image/png"
+        )
+        let originalPage = try #require(model.document.pages.first(where: { $0.id == fixture.firstPageID }))
+        let recoveredPage = DocumentPage(
+            id: originalPage.id,
+            index: originalPage.index,
+            originalIndex: originalPage.originalIndex,
+            source: originalPage.source,
+            rectified: originalPage.rectified,
+            ocrText: originalPage.ocrText,
+            ocrBlocks: originalPage.ocrBlocks,
+            annotations: [PageAnnotation(
+                id: UUID(),
+                kind: .image,
+                transform: .init(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.3),
+                zIndex: 0,
+                image: image
+            )]
+        )
+        let recoveredDocument = StoredDocument(
+            id: model.document.id,
+            folderId: model.document.folderId,
+            name: model.document.name,
+            createdAt: model.document.createdAt,
+            updatedAt: model.document.updatedAt,
+            orderIndex: model.document.orderIndex,
+            pages: model.document.pages.map { $0.id == recoveredPage.id ? recoveredPage : $0 },
+            deletedAt: model.document.deletedAt,
+            tagIds: model.document.tagIds,
+            watermarkPresetId: model.document.watermarkPresetId
+        )
+        await store.seed(imageData, reference: image)
+        await store.setRecovery(DocumentEditRecoveryDraft(
+            document: recoveredDocument,
+            sourceDocumentID: fixture.documentID,
+            selectedPageID: fixture.firstPageID,
+            stagedAssets: [image],
+            savedAt: Date(timeIntervalSince1970: 1100)
+        ))
+
+        await model.resumeRecoveryDraft()
+
+        #expect(model.annotationImages[image.id] == imageData)
+    }
 }
 
 private final class EditorFixture: @unchecked Sendable {
@@ -262,6 +352,7 @@ private actor MemoryEditorStore: DocumentEditingStore {
     private var recovery: DocumentEditRecoveryDraft?
     private var shouldFailEditedSave = false
     private var discardedAssets: [AssetReference] = []
+    private var assets: [UUID: Data] = [:]
     init(document: StoredDocument, folder: Folder) {
         storedDocument = document
         self.folder = folder
@@ -277,6 +368,14 @@ private actor MemoryEditorStore: DocumentEditingStore {
 
     func failNextEditedSave() {
         shouldFailEditedSave = true
+    }
+
+    func setRecovery(_ draft: DocumentEditRecoveryDraft) {
+        recovery = draft
+    }
+
+    func seed(_ data: Data, reference: AssetReference) {
+        assets[reference.id] = data
     }
 
     func discardedAssetCount() -> Int {
@@ -295,11 +394,14 @@ private actor MemoryEditorStore: DocumentEditingStore {
         [storedDocument]
     }
 
-    func readAsset(_: AssetReference) throws -> Data {
-        Data([0])
+    func readAsset(_ reference: AssetReference) throws -> Data {
+        assets[reference.id] ?? Data([0])
     }
 
-    func stageAnnotationAsset(_: Data, reference _: AssetReference) {}
+    func stageAnnotationAsset(_ data: Data, reference: AssetReference) {
+        assets[reference.id] = data
+    }
+
     func discardAnnotationAssets(_ references: [AssetReference]) {
         discardedAssets.append(contentsOf: references)
     }

@@ -45,7 +45,12 @@
                 guard let item else { return }
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-                    _ = await model.importImage(data: data, mediaType: "image/jpeg", fileExtension: "jpg")
+                    let type = item.supportedContentTypes.first
+                    _ = await model.importImage(
+                        data: data,
+                        mediaType: type?.preferredMIMEType ?? "application/octet-stream",
+                        fileExtension: type?.preferredFilenameExtension ?? "img"
+                    )
                     photoItem = nil
                 }
             }
@@ -211,7 +216,11 @@
                         showSignature: { showsSignature = true }
                     )
                     if let annotation = model.selectedAnnotation, annotation.kind != .text {
-                        AnnotationInspector(model: model, showPageTargets: { showsPageTargets = true })
+                        AnnotationInspector(
+                            model: model,
+                            editText: beginEditingText,
+                            showPageTargets: { showsPageTargets = true }
+                        )
                     }
                 }
             } else {
@@ -232,8 +241,12 @@
                     }
                     Divider()
                     ScrollView {
-                        AnnotationInspector(model: model, showPageTargets: { showsPageTargets = true })
-                            .padding(WatakeSpacing.md)
+                        AnnotationInspector(
+                            model: model,
+                            editText: beginEditingText,
+                            showPageTargets: { showsPageTargets = true }
+                        )
+                        .padding(WatakeSpacing.md)
                     }
                     .frame(width: min(max(320, 340), 380))
                     .background(WatakeColor.surface.raised)
@@ -371,16 +384,11 @@
         var body: some View {
             ScrollView(axis == .horizontal ? .horizontal : .vertical, showsIndicators: false) {
                 if axis == .horizontal {
-                    HStack(spacing: WatakeSpacing.xs) { pages }
+                    LazyHStack(spacing: WatakeSpacing.xs) { pages }
                         .padding(WatakeSpacing.xs)
                 } else {
                     LazyVStack(spacing: WatakeSpacing.xs) { pages }
                         .padding(WatakeSpacing.xs)
-                }
-            }
-            .task {
-                for page in model.pages where model.pageImages[page.id] == nil {
-                    await model.loadPageImage(for: page.id)
                 }
             }
         }
@@ -389,11 +397,7 @@
             ForEach(model.pages) { page in
                 Button { model.selectPage(page.id) } label: {
                     VStack(spacing: WatakeSpacing.xxs) {
-                        if let data = model.pageImages[page.id], let image = UIImage(data: data) {
-                            Image(uiImage: image).resizable().scaledToFit()
-                        } else {
-                            Rectangle().fill(WatakeColor.surface.sunken).overlay { ProgressView() }
-                        }
+                        EditorPageThumbnail(model: model, page: page)
                         Text("\(page.index + 1)").watakeType(.caption)
                     }
                     .frame(width: 70, height: 78)
@@ -411,18 +415,46 @@
         }
     }
 
+    private struct EditorPageThumbnail: View {
+        let model: DocumentEditorModel
+        let page: DocumentPage
+        @State private var image: UIImage?
+        @State private var failed = false
+
+        var body: some View {
+            Group {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else if failed {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(WatakeColor.status.danger)
+                } else {
+                    Rectangle().fill(WatakeColor.surface.sunken).overlay { ProgressView() }
+                }
+            }
+            .task(id: page.id) {
+                image = nil
+                failed = false
+                guard let data = await model.pageImageData(for: page.id), let source = UIImage(data: data) else {
+                    failed = true
+                    return
+                }
+                image = await source.byPreparingThumbnail(ofSize: CGSize(width: 140, height: 156)) ?? source
+            }
+        }
+    }
+
     private struct DocumentCanvas: View {
         @Bindable var model: DocumentEditorModel
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         @State private var zoomScale = 1.0
         @State private var lastMagnification = 1.0
+        @State private var pageImage: UIImage?
 
         var body: some View {
             GeometryReader { proxy in
-                if let page = model.selectedPage,
-                   let data = model.pageImages[page.id],
-                   let image = UIImage(data: data) {
+                if model.selectedPage != nil, let image = pageImage {
                     let rect = fittedRect(imageSize: image.size, container: proxy.size)
                     ScrollView([.horizontal, .vertical]) {
                         PageSurface(model: model, image: image, editText: editText, showTextStyle: showTextStyle)
@@ -437,6 +469,12 @@
                     ProgressView("Loading page")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            }
+            .task(id: model.selectedPageID) {
+                pageImage = nil
+                await model.loadPageImage(for: model.selectedPageID)
+                guard let data = model.pageImages[model.selectedPageID], let source = UIImage(data: data) else { return }
+                pageImage = await source.byPreparingForDisplay() ?? source
             }
         }
 
@@ -578,6 +616,7 @@
         var body: some View {
             Canvas { context, size in
                 guard let first = points.first else { return }
+                context.blendMode = .multiply
                 var path = Path()
                 path.move(to: CGPoint(x: first.location.x * size.width, y: first.location.y * size.height))
                 for point in points.dropFirst() {
@@ -585,8 +624,12 @@
                 }
                 context.stroke(
                     path,
-                    with: .color(WatakeColor.status.warning.opacity(0.42)),
-                    style: .init(lineWidth: 14, lineCap: .round, lineJoin: .round)
+                    with: .color(contentColor("#FBBF24").opacity(0.42)),
+                    style: .init(
+                        lineWidth: 0.025 * min(size.width, size.height),
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
                 )
             }
             .allowsHitTesting(true)
@@ -595,6 +638,7 @@
 
     private struct AnnotationInspector: View {
         @Bindable var model: DocumentEditorModel
+        let editText: (UUID) -> Void
         let showPageTargets: () -> Void
 
         var body: some View {
@@ -646,14 +690,19 @@
 
         private func textControls(_ text: AnnotationText) -> some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
-                TextEditor(text: Binding(
-                    get: { model.selectedAnnotation?.text?.text ?? "" },
-                    set: { updateText(text, value: $0) }
-                ))
-                .frame(minHeight: 80)
-                .padding(WatakeSpacing.xxs)
-                .background(WatakeColor.surface.base)
-                .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
+                Text(text.text)
+                    .watakeType(.body)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
+                    .padding(WatakeSpacing.xxs)
+                    .background(WatakeColor.surface.base)
+                    .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
+                if let annotationID = model.selectedAnnotationID {
+                    Button { editText(annotationID) } label: {
+                        Label("Edit text", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(.bordered)
+                }
                 HStack {
                     Toggle("Bold", isOn: Binding(get: { text.isBold }, set: { updateStyle(text, bold: $0) }))
                     Toggle("Italic", isOn: Binding(get: { text.isItalic }, set: { updateStyle(text, italic: $0) }))
@@ -710,14 +759,6 @@
                     .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
                 }
             }
-        }
-
-        private func updateText(_ current: AnnotationText, value: String) {
-            model.updateSelectedText(AnnotationText(
-                text: value.isEmpty ? "Text" : value, fontName: current.fontName, fontSize: current.fontSize,
-                colorHex: current.colorHex, alignment: current.alignment, isBold: current.isBold,
-                isItalic: current.isItalic, isUnderlined: current.isUnderlined
-            ))
         }
 
         private func updateStyle(

@@ -117,7 +117,7 @@ public actor WatermarkPageCompositor {
 
         context.saveGState()
         context.translateBy(x: anchor.x, y: anchor.y)
-        context.rotate(by: config.globalRotation * .pi / 180)
+        context.rotate(by: -config.globalRotation * .pi / 180)
         context.setAlpha(config.globalOpacity)
         let origin = CGPoint(x: -metrics.width / 2, y: -metrics.height / 2)
         if let logo, let layer = config.image, metrics.placement == .behindText {
@@ -202,7 +202,7 @@ public actor WatermarkPageCompositor {
             cursor -= height
             context.saveGState()
             context.translateBy(x: layout.originX + layout.width / 2, y: cursor + height / 2)
-            context.rotate(by: layer.rotation * .pi / 180)
+            context.rotate(by: -layer.rotation * .pi / 180)
             let color = try cgColor(layer.colorHex, alpha: layer.opacity)
             let font = WatermarkFontResolver.resolveFont(named: layer.fontName, pointSize: size)
             var alignment = CTTextAlignment.center
@@ -233,7 +233,7 @@ public actor WatermarkPageCompositor {
     private func drawLogo(_ image: CGImage, layer: WatermarkImageLayer, rect: CGRect, into context: CGContext) throws {
         context.saveGState()
         context.translateBy(x: rect.midX, y: rect.midY)
-        context.rotate(by: layer.rotation * .pi / 180)
+        context.rotate(by: -layer.rotation * .pi / 180)
         let target = CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height)
         context.setAlpha(layer.opacity)
         context.draw(image, in: target)

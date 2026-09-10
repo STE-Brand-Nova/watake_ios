@@ -62,6 +62,41 @@ struct PageAnnotationCompositorTests {
         #expect(rendered.height == 80)
         #expect(result != sourceData)
     }
+
+    @Test("positive annotation rotation is clockwise like SwiftUI preview")
+    func positiveRotationIsClockwise() async throws {
+        let store = InMemoryAssetStore()
+        let sourceData = SyntheticImage.makePNGData(width: 200, height: 200, red: 1, green: 1, blue: 1)
+        let markerData = SyntheticImage.makeTopBottomPNGData(
+            width: 40,
+            height: 80,
+            topColor: SyntheticColor(red: 1, green: 0, blue: 0),
+            bottomColor: SyntheticColor(red: 0, green: 0, blue: 1)
+        )
+        let marker = SyntheticImage.makeAssetReference(pageId: UUID(), data: markerData)
+        await store.seed(markerData, reference: marker)
+        let annotation = PageAnnotation(
+            id: UUID(),
+            kind: .image,
+            transform: AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.2, height: 0.4, rotation: 90),
+            zIndex: 0,
+            image: marker
+        )
+
+        let result = try await PageAnnotationCompositor(assetStore: store).renderJPEG(
+            sourceData: sourceData,
+            annotations: [annotation],
+            quality: 1
+        )
+        let rendered = try decodeImage(result)
+        let left = try pixel(in: rendered, column: 75, row: 100)
+        let right = try pixel(in: rendered, column: 125, row: 100)
+
+        #expect(left.blue > 0.75)
+        #expect(left.red < 0.25)
+        #expect(right.red > 0.75)
+        #expect(right.blue < 0.25)
+    }
 }
 
 private struct RGBPixel {

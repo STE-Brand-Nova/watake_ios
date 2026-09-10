@@ -144,15 +144,23 @@ extension DocumentEditorModel {
         selectedPageID = pageID
         selectedAnnotationID = nil
         continuousBaseline = nil
+        retainImageCaches(for: pageID)
         Task { await loadImagesForSelectedPage() }
     }
 
     public func loadPageImage(for pageID: UUID) async {
-        guard pageImages[pageID] == nil, let page = document.pages.first(where: { $0.id == pageID }) else { return }
-        pageImages[pageID] = try? await store.readAsset(page.rectified ?? page.source)
+        guard let page = document.pages.first(where: { $0.id == pageID }) else { return }
+        if pageImages[pageID] == nil {
+            pageImages[pageID] = try? await store.readAsset(page.rectified ?? page.source)
+        }
         for reference in page.annotations.compactMap(\.image) where annotationImages[reference.id] == nil {
             annotationImages[reference.id] = try? await store.readAsset(reference)
         }
+    }
+
+    public func pageImageData(for pageID: UUID) async -> Data? {
+        guard let page = document.pages.first(where: { $0.id == pageID }) else { return nil }
+        return try? await store.readAsset(page.rectified ?? page.source)
     }
 
     public func selectAnnotation(_ annotationID: UUID?) {
@@ -172,14 +180,15 @@ extension DocumentEditorModel {
 
 extension DocumentEditorModel {
     public func addText(_ value: String = "Text") {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let limitedValue = String(value.prefix(AnnotationText.maximumLength))
+        let text = limitedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         let annotation = PageAnnotation(
             id: makeUUID(),
             kind: .text,
             transform: .init(centerX: 0.5, centerY: 0.3, width: 0.58, height: 0.12),
             zIndex: nextZIndex,
-            text: AnnotationText(text: value)
+            text: AnnotationText(text: limitedValue)
         )
         append(annotation)
     }
@@ -266,6 +275,7 @@ extension DocumentEditorModel {
     }
 
     public func updateSelectedText(_ value: AnnotationText) {
+        guard (try? value.validate()) != nil else { return }
         if textHistoryBaseline == nil {
             textHistoryBaseline = selectedPage?.annotations
             textHistoryPageID = selectedPageID
@@ -467,6 +477,7 @@ extension DocumentEditorModel {
             stagedAssets.removeAll()
             saveState = .savedCopy
             onPersisted(copy, true)
+            retainImageCaches(for: selectedPageID)
             await loadImagesForSelectedPage()
             return true
         } catch {
@@ -487,6 +498,7 @@ extension DocumentEditorModel {
             selectedPageID = recovery.selectedPageID
             stagedAssets = recovery.stagedAssets
             recoveryDraftAvailable = false
+            retainImageCaches(for: selectedPageID)
             await loadImagesForSelectedPage()
         } catch {
             errorMessage = "Draft could not be restored."
@@ -603,7 +615,13 @@ extension DocumentEditorModel {
             document: document, sourceDocumentID: sourceDocumentID, selectedPageID: selectedPage.id,
             stagedAssets: stagedAssets, savedAt: now()
         )
-        recoveryTask = Task { [store] in
+        do {
+            try recovery.validate()
+        } catch {
+            errorMessage = "This edit is invalid and was not added to the recovery draft."
+            return
+        }
+        recoveryTask = Task { [weak self, store] in
             do {
                 try await Task.sleep(for: .milliseconds(600))
                 try Task.checkCancellation()
@@ -611,13 +629,21 @@ extension DocumentEditorModel {
             } catch is CancellationError {
                 // Superseded edits intentionally replace older recovery writes.
             } catch {
-                // Recovery failure never blocks editing or exposes private data.
+                self?.errorMessage = "Recovery draft could not be updated. Keep the editor open and try saving again."
             }
         }
     }
 
     private func loadImagesForSelectedPage() async {
         await loadPageImage(for: selectedPageID)
+    }
+
+    private func retainImageCaches(for pageID: UUID) {
+        pageImages = pageImages.filter { $0.key == pageID }
+        let annotationIDs = Set(
+            document.pages.first(where: { $0.id == pageID })?.annotations.compactMap(\.image?.id) ?? []
+        )
+        annotationImages = annotationImages.filter { annotationIDs.contains($0.key) }
     }
 
     private func makeCopy(name: String, folderID: UUID, orderIndex: Int) -> StoredDocument {

@@ -803,7 +803,7 @@ extension WatakeFileStorage: DocumentEditingStore {
     }
 
     public func discardAnnotationAssets(_ references: [AssetReference]) async {
-        let liveReferences = (try? referencedAssetIDs()) ?? []
+        guard let liveReferences = try? referencedAssetIDs() else { return }
         for reference in references where !liveReferences.contains(reference.id) {
             try? await removeAsset(reference)
         }

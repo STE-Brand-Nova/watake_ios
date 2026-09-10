@@ -9,12 +9,10 @@
         let pageSize: CGSize
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
-        @State private var dragStart: AnnotationTransform?
-        @State private var resizeStart: AnnotationTransform?
-        @State private var rotationStart: AnnotationTransform?
-        @State private var interactionTransform: AnnotationTransform?
-        @State private var lastScale = 1.0
-        @State private var lastRotation = Angle.zero
+        @GestureState private var movePreview: AnnotationTransform?
+        @GestureState private var resizePreview: AnnotationTransform?
+        @GestureState private var rotationPreview: AnnotationTransform?
+        @GestureState private var scaleRotationPreview: AnnotationTransform?
 
         var body: some View {
             ZStack {
@@ -28,7 +26,7 @@
                         }
                     }
                     .gesture(moveGesture)
-                if isSelected, dragStart == nil {
+                if isSelected, movePreview == nil {
                     Rectangle()
                         .stroke(WatakeColor.brand.primary, lineWidth: 2)
                         .allowsHitTesting(false)
@@ -55,11 +53,24 @@
         }
 
         private var displayedTransform: AnnotationTransform {
-            interactionTransform ?? annotation.transform
+            rotationPreview ?? resizePreview ?? scaleRotationPreview ?? movePreview ?? annotation.transform
         }
 
         private var textSelectionControls: some View {
             GeometryReader { proxy in
+                if textIsClipped {
+                    Label("Text clipped", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(WatakeColor.status.warning)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(WatakeColor.surface.raised.opacity(0.92))
+                        .clipShape(Capsule())
+                        .position(x: proxy.size.width / 2, y: min(18, proxy.size.height / 2))
+                        .allowsHitTesting(false)
+                        .accessibilityLabel("Text is clipped. Enlarge the box or reduce the font size.")
+                }
+
                 selectionButton(icon: "xmark", label: "Delete text", role: .destructive) {
                     model.selectAnnotation(annotation.id)
                     model.deleteSelected()
@@ -130,21 +141,20 @@
 
         private var resizeGesture: some Gesture {
             DragGesture(minimumDistance: 0, coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
-                .onChanged { value in
-                    if resizeStart == nil {
-                        model.selectAnnotation(annotation.id)
-                        resizeStart = annotation.transform
-                    }
-                    guard let start = resizeStart else { return }
-                    interactionTransform = DocumentAnnotationInteraction.resized(
-                        from: start,
+                .updating($resizePreview) { value, preview, _ in
+                    preview = DocumentAnnotationInteraction.resized(
+                        from: annotation.transform,
                         translation: value.translation,
                         pageSize: pageSize
                     )
                 }
-                .onEnded { _ in
-                    guard let transform = interactionTransform, let start = resizeStart else { return }
-                    if transform != start {
+                .onEnded { value in
+                    let transform = DocumentAnnotationInteraction.resized(
+                        from: annotation.transform,
+                        translation: value.translation,
+                        pageSize: pageSize
+                    )
+                    if transform != annotation.transform {
                         model.selectAnnotation(annotation.id)
                         model.transformSelected(
                             centerX: transform.centerX,
@@ -153,34 +163,30 @@
                             height: transform.height
                         )
                     }
-                    resizeStart = nil
-                    interactionTransform = nil
                 }
         }
 
         private var rotationGesture: some Gesture {
             DragGesture(minimumDistance: 0, coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
-                .onChanged { value in
-                    if rotationStart == nil {
-                        model.selectAnnotation(annotation.id)
-                        rotationStart = annotation.transform
-                    }
-                    guard let start = rotationStart else { return }
-                    interactionTransform = DocumentAnnotationInteraction.rotated(
-                        from: start,
+                .updating($rotationPreview) { value, preview, _ in
+                    preview = DocumentAnnotationInteraction.rotated(
+                        from: annotation.transform,
                         startLocation: value.startLocation,
                         location: value.location,
                         pageSize: pageSize
                     )
                 }
-                .onEnded { _ in
-                    guard let transform = interactionTransform, let start = rotationStart else { return }
-                    if transform != start {
+                .onEnded { value in
+                    let transform = DocumentAnnotationInteraction.rotated(
+                        from: annotation.transform,
+                        startLocation: value.startLocation,
+                        location: value.location,
+                        pageSize: pageSize
+                    )
+                    if transform != annotation.transform {
                         model.selectAnnotation(annotation.id)
-                        model.transformSelected(rotationDelta: transform.rotation - start.rotation)
+                        model.transformSelected(rotationDelta: transform.rotation - annotation.transform.rotation)
                     }
-                    rotationStart = nil
-                    interactionTransform = nil
                 }
         }
 
@@ -194,104 +200,110 @@
             case .text:
                 if let text = annotation.text {
                     Text(text.text)
-                        .font(.custom(text.fontName, size: max(10, text.fontSize * min(pageSize.width, pageSize.height))))
-                        .fontWeight(text.isBold ? .bold : .regular)
-                        .italic(text.isItalic)
+                        .font(annotationFont(text, pageSize: pageSize))
                         .underline(text.isUnderlined)
                         .foregroundStyle(annotationContentColor(text.colorHex))
                         .multilineTextAlignment(annotationTextAlignment(text.alignment))
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: annotationFrameAlignment(text.alignment))
+                        .clipped()
                 }
             case .signature, .highlight:
-                StrokeCanvas(strokes: annotation.strokes)
+                StrokeCanvas(strokes: annotation.strokes, usesMultiplyBlend: annotation.kind == .highlight)
             case .image:
-                if let reference = annotation.image,
-                   let data = model.annotationImages[reference.id],
-                   let image = UIImage(data: data) {
-                    Image(uiImage: image).resizable().scaledToFit()
+                if let reference = annotation.image, let data = model.annotationImages[reference.id] {
+                    AnnotationImageContent(
+                        id: reference.id,
+                        data: data,
+                        targetSize: pageSize
+                    )
                 }
             }
         }
 
         private var moveGesture: some Gesture {
             DragGesture(coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
-                .onChanged { value in
+                .updating($movePreview) { value, preview, _ in
                     guard canTransform else { return }
-                    if dragStart == nil {
-                        model.selectAnnotation(annotation.id)
-                        dragStart = annotation.transform
-                        if annotation.kind != .text {
-                            model.beginContinuousEdit()
-                        }
-                    }
-                    guard let start = dragStart else { return }
-                    if annotation.kind == .text {
-                        interactionTransform = DocumentAnnotationInteraction.moved(
-                            from: start,
-                            translation: value.translation,
-                            pageSize: pageSize
-                        )
-                    } else {
-                        model.transformSelected(
-                            centerX: start.centerX + value.translation.width / pageSize.width,
-                            centerY: start.centerY + value.translation.height / pageSize.height
-                        )
-                    }
+                    preview = DocumentAnnotationInteraction.moved(
+                        from: annotation.transform,
+                        translation: value.translation,
+                        pageSize: pageSize
+                    )
                 }
-                .onEnded { _ in
-                    guard dragStart != nil else { return }
-                    if annotation.kind == .text, let transform = interactionTransform {
+                .onEnded { value in
+                    guard canTransform else { return }
+                    let transform = DocumentAnnotationInteraction.moved(
+                        from: annotation.transform,
+                        translation: value.translation,
+                        pageSize: pageSize
+                    )
+                    if transform != annotation.transform {
                         model.selectAnnotation(annotation.id)
-                        model.transformSelected(centerX: transform.centerX, centerY: transform.centerY)
-                    } else if annotation.kind != .text {
-                        model.endContinuousEdit()
+                        model.transformSelected(
+                            centerX: transform.centerX,
+                            centerY: transform.centerY
+                        )
                     }
-                    dragStart = nil
-                    interactionTransform = nil
                 }
                 .simultaneously(with: scaleAndRotationGesture)
         }
 
         private var scaleAndRotationGesture: some Gesture {
-            let scale = MagnifyGesture().onChanged { value in
-                guard model.tool == .select, annotation.kind != .text else { return }
-                if lastScale == 1 {
-                    model.selectAnnotation(annotation.id)
-                    model.beginContinuousEdit()
+            MagnifyGesture().simultaneously(with: RotateGesture())
+                .updating($scaleRotationPreview) { value, preview, _ in
+                    guard model.tool == .select, annotation.kind != .text else { return }
+                    preview = DocumentAnnotationInteraction.scaledAndRotated(
+                        from: annotation.transform,
+                        scale: Double(value.first?.magnification ?? 1),
+                        rotationDelta: value.second?.rotation.degrees ?? 0
+                    )
                 }
-                model.transformSelected(scale: value.magnification / lastScale)
-                lastScale = value.magnification
-            }.onEnded { _ in
-                guard lastScale != 1 else { return }
-                lastScale = 1
-                model.endContinuousEdit()
-            }
-            let rotate = RotateGesture().onChanged { value in
-                guard model.tool == .select, annotation.kind != .text else { return }
-                if lastRotation == .zero {
-                    model.selectAnnotation(annotation.id)
-                    model.beginContinuousEdit()
+                .onEnded { value in
+                    guard model.tool == .select, annotation.kind != .text else { return }
+                    let transform = DocumentAnnotationInteraction.scaledAndRotated(
+                        from: annotation.transform,
+                        scale: Double(value.first?.magnification ?? 1),
+                        rotationDelta: value.second?.rotation.degrees ?? 0
+                    )
+                    if transform != annotation.transform {
+                        model.selectAnnotation(annotation.id)
+                        model.transformSelected(
+                            width: transform.width,
+                            height: transform.height,
+                            rotationDelta: transform.rotation - annotation.transform.rotation
+                        )
+                    }
                 }
-                model.transformSelected(rotationDelta: value.rotation.degrees - lastRotation.degrees)
-                lastRotation = value.rotation
-            }.onEnded { _ in
-                guard lastRotation != .zero else { return }
-                lastRotation = .zero
-                model.endContinuousEdit()
-            }
-            return scale.simultaneously(with: rotate)
         }
 
         private var canTransform: Bool {
             model.tool == .select || (model.tool == .text && annotation.kind == .text)
         }
+
+        private var textIsClipped: Bool {
+            guard let text = annotation.text else { return false }
+            let width = displayedTransform.width * pageSize.width
+            let height = displayedTransform.height * pageSize.height
+            let bounds = (text.text as NSString).boundingRect(
+                with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: annotationUIFont(text, pageSize: pageSize)],
+                context: nil
+            )
+            return ceil(bounds.height) > height
+        }
     }
 
     private struct StrokeCanvas: View {
         let strokes: [InkStroke]
+        let usesMultiplyBlend: Bool
 
         var body: some View {
             Canvas { context, size in
+                if usesMultiplyBlend {
+                    context.blendMode = .multiply
+                }
                 for stroke in strokes {
                     guard let first = stroke.points.first else { continue }
                     var path = Path()
@@ -309,6 +321,29 @@
                         )
                     )
                 }
+            }
+        }
+    }
+
+    private struct AnnotationImageContent: View {
+        let id: UUID
+        let data: Data
+        let targetSize: CGSize
+        @State private var image: UIImage?
+        @Environment(\.displayScale) private var displayScale
+
+        var body: some View {
+            Group {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    ProgressView()
+                }
+            }
+            .task(id: id) {
+                guard let source = UIImage(data: data) else { return }
+                let preparedSize = CGSize(width: targetSize.width * displayScale, height: targetSize.height * displayScale)
+                image = await source.byPreparingThumbnail(ofSize: preparedSize) ?? source
             }
         }
     }
@@ -332,9 +367,27 @@
 
     private func annotationFrameAlignment(_ alignment: AnnotationTextAlignment) -> Alignment {
         switch alignment {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
+        case .leading: .topLeading
+        case .center: .top
+        case .trailing: .topTrailing
         }
+    }
+
+    private func annotationFont(_ text: AnnotationText, pageSize: CGSize) -> Font {
+        Font(annotationUIFont(text, pageSize: pageSize))
+    }
+
+    private func annotationUIFont(_ text: AnnotationText, pageSize: CGSize) -> UIFont {
+        let size = text.fontSize * min(pageSize.width, pageSize.height)
+        let base = UIFont(name: text.fontName, size: size) ?? UIFont(name: "Helvetica", size: size) ?? .systemFont(ofSize: size)
+        var traits = base.fontDescriptor.symbolicTraits
+        if text.isBold {
+            traits.insert(.traitBold)
+        }
+        if text.isItalic {
+            traits.insert(.traitItalic)
+        }
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else { return base }
+        return UIFont(descriptor: descriptor, size: size)
     }
 #endif

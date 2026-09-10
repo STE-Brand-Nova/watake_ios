@@ -28,6 +28,15 @@
                     .background(WatakeColor.surface.sunken)
                     .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
                     .accessibilityLabel("Text content")
+                    .onChange(of: text) { _, value in
+                        if value.count > AnnotationText.maximumLength {
+                            text = String(value.prefix(AnnotationText.maximumLength))
+                        }
+                    }
+                Text("\(text.count) / \(AnnotationText.maximumLength)")
+                    .watakeType(.caption)
+                    .foregroundStyle(WatakeColor.text.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 HStack {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(.bordered)

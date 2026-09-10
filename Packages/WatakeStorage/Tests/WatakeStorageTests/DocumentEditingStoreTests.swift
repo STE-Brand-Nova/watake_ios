@@ -84,6 +84,25 @@ struct DocumentEditingStoreTests {
         #expect(try await storage.containsAsset(fixture.source))
         #expect(try await !storage.containsAsset(fixture.image))
     }
+
+    @Test("asset cleanup aborts when live-reference metadata cannot be read")
+    func failedReferenceScanPreservesCandidateAsset() async throws {
+        let root = EphemeralRootResolver()
+        defer { root.removeAll() }
+        let service = makeTestKeychainService()
+        defer { deleteTestKeychainKey(service: service) }
+        let storage = makeStorage(root: root, service: service)
+        let folder = makeFolder()
+        try await storage.saveFolder(folder)
+        let fixture = makeAnnotatedDocument(folder: folder, imageBytes: Data("protected annotation".utf8))
+        try await seed(fixture, into: storage)
+        let metadata = StorageLayout.documentMetadataFile(root.root, folder.id, fixture.document.id)
+        try Data("corrupt metadata".utf8).write(to: metadata, options: .atomic)
+
+        await storage.discardAnnotationAssets([fixture.image])
+
+        #expect(try await storage.containsAsset(fixture.image))
+    }
 }
 
 private struct AnnotatedDocumentFixture {

@@ -41,6 +41,8 @@ public struct AnnotationTransform: Codable, Equatable, Sendable {
 }
 
 public struct AnnotationText: Codable, Equatable, Sendable {
+    public static let maximumLength = 5000
+
     public let text: String
     public let fontName: String
     /// Font height relative to page's shorter edge.
@@ -72,7 +74,7 @@ public struct AnnotationText: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= 5000,
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= Self.maximumLength,
               !fontName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               fontName.count <= 120,
               fontSize.isFinite, fontSize >= 0.01, fontSize <= 0.25 else {
