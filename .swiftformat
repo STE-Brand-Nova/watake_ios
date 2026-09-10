@@ -50,9 +50,10 @@
 --enable redundantVoidReturnType
 --enable strongOutlets
 --enable trailingCommas
---enable wrapMultilineStatementBraces
 --enable blankLinesAtEndOfScope
 --enable blankLinesBetweenScopes
 
 --disable andOperator
+# Keep multiline guard/if opening braces on the same line as the declaration;
+# SwiftLint opening_brace rejects the wrapped style (see lefthook pre-commit).
 --disable wrapMultilineStatementBraces

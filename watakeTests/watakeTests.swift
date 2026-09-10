@@ -133,7 +133,7 @@ struct ViewerDocumentActionTransitionTests {
     }
 
     @Test func inlineViewerPresentsActionImmediately() {
-        let action = ViewerDocumentAction.export(UUID())
+        let action = ViewerDocumentAction.export(makeViewerActionDocument())
         var transition = ViewerDocumentActionTransition()
 
         #expect(transition.request(action, viewerIsPresentedModally: false) == action)
@@ -148,6 +148,26 @@ struct ViewerDocumentActionTransitionTests {
         #expect(transition.takePendingAfterViewerDismissal() == action)
         #expect(transition.takePendingAfterViewerDismissal() == nil)
     }
+}
+
+private func makeViewerActionDocument() -> StoredDocument {
+    let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+    let source = AssetReference(
+        id: UUID(),
+        relativePath: "test/source.jpg",
+        sha256Hex: String(repeating: "0", count: 64),
+        byteSize: 1,
+        mediaType: "image/jpeg"
+    )
+    return StoredDocument(
+        id: UUID(),
+        folderId: UUID(),
+        name: "Draft",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        orderIndex: 0,
+        pages: [DocumentPage(id: UUID(), index: 0, source: source)]
+    )
 }
 
 @MainActor

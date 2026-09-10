@@ -127,7 +127,7 @@ public final class ExportFeatureModel: Identifiable {
         }
 
         let renderPages = draft.includedItems.map { item in
-            PDFRenderPage(id: item.id, assetReference: item.assetReference)
+            PDFRenderPage(id: item.id, assetReference: item.assetReference, annotations: item.annotations)
         }
         let estimatedBytes = sizeEstimator.estimateOutputSize(pages: renderPages, pageSize: draft.pageSize, fitMode: draft.fitMode)
         if warningPolicy.shouldWarn(estimatedBytes: estimatedBytes) {
@@ -211,7 +211,7 @@ public final class ExportFeatureModel: Identifiable {
     /// can be cleaned up on cancellation or failure.
     private func makeRenderJob(for draft: BulkExportDraft) -> PDFRenderJob {
         let renderPages = draft.includedItems.map { item in
-            PDFRenderPage(id: item.id, assetReference: item.assetReference)
+            PDFRenderPage(id: item.id, assetReference: item.assetReference, annotations: item.annotations)
         }
 
         let safeFilename = ExportFilenameSanitizer.sanitize(draft.outputFilename)

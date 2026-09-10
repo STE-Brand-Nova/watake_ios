@@ -29,6 +29,11 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case renditionRequiresPage
     case issuanceRequiresRendition
     case invalidRenditionVersion(Int)
+    case annotationGeometryInvalid
+    case annotationPayloadInvalid
+    case annotationZIndexInvalid
+    case duplicateAnnotationIDs
+    case duplicateAnnotationZIndexes
 }
 
 public enum WatakeContractCoding {
@@ -159,6 +164,7 @@ public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
     public let rectified: AssetReference?
     public let ocrText: String?
     public let ocrBlocks: [OCRBlock]
+    public let annotations: [PageAnnotation]
 
     public init(
         id: UUID,
@@ -167,7 +173,8 @@ public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
         source: AssetReference,
         rectified: AssetReference? = nil,
         ocrText: String? = nil,
-        ocrBlocks: [OCRBlock] = []
+        ocrBlocks: [OCRBlock] = [],
+        annotations: [PageAnnotation] = []
     ) {
         self.id = id
         self.index = index
@@ -176,12 +183,22 @@ public struct DocumentPage: Identifiable, Codable, Equatable, Sendable {
         self.rectified = rectified
         self.ocrText = ocrText?.normalizedLineEndings()
         self.ocrBlocks = ocrBlocks
+        self.annotations = annotations
     }
 
     public func validate() throws {
         try source.validate()
         try rectified?.validate()
         try ocrBlocks.forEach { try $0.validate() }
+        let annotationIDs = annotations.map(\.id)
+        guard Set(annotationIDs).count == annotationIDs.count else {
+            throw DomainValidationError.duplicateAnnotationIDs
+        }
+        let zIndexes = annotations.map(\.zIndex)
+        guard Set(zIndexes).count == zIndexes.count else {
+            throw DomainValidationError.duplicateAnnotationZIndexes
+        }
+        try annotations.forEach { try $0.validate() }
     }
 }
 

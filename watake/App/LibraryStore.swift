@@ -17,7 +17,7 @@ import WatakeStorage
 @MainActor
 @Observable
 final class LibraryStore {
-    private let storage: WatakeFileStorage
+    let storage: WatakeFileStorage
     private let archive: ArchiveService
     private let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
@@ -45,9 +45,9 @@ final class LibraryStore {
     /// regular/expanded shell split) so opening a document and its selected
     /// page survive width-class changes. Routes by `DocumentID`, never a
     /// `StoredDocument` instance or file URL.
-    private(set) var selectedDocumentID: UUID?
-    private(set) var selectedFolderID: UUID?
-    private(set) var mostRecentlyUsedFolder: UUID?
+    var selectedDocumentID: UUID?
+    var selectedFolderID: UUID?
+    var mostRecentlyUsedFolder: UUID?
     private var viewerModels: [UUID: DocumentViewerModel] = [:]
 
     private var layoutByFolder: [UUID: DocumentLayout] = [:]
@@ -210,18 +210,17 @@ extension LibraryStore {
     }
 
     func makeExportModel(for documentIDs: Set<UUID>) -> ExportFeatureModel {
-        let loader = LibraryExportDocumentLoader { [weak self] ids in
-            guard let self else { return [] }
-            return await MainActor.run {
-                self.documents(forIDs: ids)
-            }
-        }
+        makeExportModel(for: documents(forIDs: documentIDs))
+    }
+
+    func makeExportModel(for documents: [StoredDocument]) -> ExportFeatureModel {
+        let loader = LibraryExportDocumentLoader { ids in documents.filter { ids.contains($0.id) } }
         let pdfRenderer = BulkPDFRenderer(assetStore: storage)
         let model = ExportFeatureModel(
             documentLoader: loader,
             exporter: pdfRenderer
         )
-        model.prepareDraft(documentIDs: documentIDs)
+        model.prepareDraft(documentIDs: Set(documents.map(\.id)))
         return model
     }
 
@@ -391,15 +390,20 @@ extension LibraryStore {
         if let existing = viewerModels[documentID] {
             return existing
         }
-        let thumbnailLoader: any DocumentPageThumbnailLoading = thumbnailCache.map {
+        let rawThumbnailLoader: any DocumentPageThumbnailLoading = thumbnailCache.map {
             DocumentPageThumbnailProvider(assetStore: storage, cache: $0)
         } ?? RawAssetThumbnailFallback(assetStore: storage)
+        let thumbnailLoader: any DocumentPageThumbnailLoading = AnnotationAwareThumbnailLoader(
+            base: rawThumbnailLoader,
+            assetStore: storage
+        )
         let model = DocumentViewerModel(
             documentID: documentID,
             loader: storage,
             thumbnailLoader: thumbnailLoader,
             ocrRecognizer: ocrRecognizer,
             ocrStore: storage,
+            annotationRenderer: PageAnnotationCompositor(assetStore: storage),
             onOCRPersisted: { [weak self] document in
                 self?.replaceCachedDocument(document)
             }
@@ -417,11 +421,6 @@ extension LibraryStore {
         } catch {
             return nil
         }
-    }
-
-    func watermarkPreviewData(for document: StoredDocument) async -> Data? {
-        guard let page = document.pages.min(by: { $0.index < $1.index }) else { return nil }
-        return try? await storage.readAsset(page.rectified ?? page.source)
     }
 
     func watermarkRenditionPreviewData(

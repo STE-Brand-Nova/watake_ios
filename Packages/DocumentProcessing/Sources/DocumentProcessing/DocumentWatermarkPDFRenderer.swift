@@ -10,13 +10,16 @@ import WatakeDomain
 public actor DocumentWatermarkPDFRenderer: WatermarkPDFRendering {
     private let assetStore: any DocumentAssetStore
     private let compositor: WatermarkPageCompositor
+    private let annotationRenderer: any PageAnnotationRendering
 
     public init(
         assetStore: any DocumentAssetStore,
-        compositor: WatermarkPageCompositor = WatermarkPageCompositor()
+        compositor: WatermarkPageCompositor = WatermarkPageCompositor(),
+        annotationRenderer: (any PageAnnotationRendering)? = nil
     ) {
         self.assetStore = assetStore
         self.compositor = compositor
+        self.annotationRenderer = annotationRenderer ?? PageAnnotationCompositor(assetStore: assetStore)
     }
 
     public func renderPDF(for document: StoredDocument, watermark config: WatermarkConfig) async throws -> Data {
@@ -61,11 +64,22 @@ public actor DocumentWatermarkPDFRenderer: WatermarkPDFRendering {
             throw WatermarkRenderError.sourceAssetUnreadable(pageIndex: page.index)
         }
 
+        let annotatedData: Data
+        do {
+            annotatedData = page.annotations.isEmpty ? sourceData : try await annotationRenderer.renderJPEG(
+                sourceData: sourceData,
+                annotations: page.annotations,
+                maximumPixelDimension: nil,
+                quality: 0.95
+            )
+        } catch {
+            throw WatermarkRenderError.sourceImageUndecodable(pageIndex: page.index)
+        }
         let renderedData: Data
         if Self.hasVisibleWatermark(config) {
             do {
                 renderedData = try await compositor.renderJPEG(
-                    sourceData: sourceData,
+                    sourceData: annotatedData,
                     config: config,
                     imageData: imageData
                 )
@@ -77,7 +91,7 @@ public actor DocumentWatermarkPDFRenderer: WatermarkPDFRendering {
                 throw WatermarkRenderError.pdfGenerationFailed
             }
         } else {
-            renderedData = sourceData
+            renderedData = annotatedData
         }
 
         guard let image = Self.decodeImage(from: renderedData) else {

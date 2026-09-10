@@ -77,6 +77,7 @@ public actor WatermarkIssuanceService {
     private let repository: any WatermarkCopyRepository
     private let assetStore: any DocumentAssetStore
     private let compositor: WatermarkPageCompositor
+    private let annotationRenderer: any PageAnnotationRendering
     private let now: @Sendable () -> Date
     private let makeUUID: @Sendable () -> UUID
 
@@ -84,12 +85,14 @@ public actor WatermarkIssuanceService {
         repository: any WatermarkCopyRepository,
         assetStore: any DocumentAssetStore,
         compositor: WatermarkPageCompositor = WatermarkPageCompositor(),
+        annotationRenderer: (any PageAnnotationRendering)? = nil,
         now: @escaping @Sendable () -> Date = Date.init,
         makeUUID: @escaping @Sendable () -> UUID = UUID.init
     ) {
         self.repository = repository
         self.assetStore = assetStore
         self.compositor = compositor
+        self.annotationRenderer = annotationRenderer ?? PageAnnotationCompositor(assetStore: assetStore)
         self.now = now
         self.makeUUID = makeUUID
     }
@@ -207,7 +210,13 @@ public actor WatermarkIssuanceService {
         do {
             for page in document.pages.sorted(by: { $0.index < $1.index }) {
                 try Task.checkCancellation()
-                let source = try await sourceData(for: page)
+                let rawSource = try await sourceData(for: page)
+                let source = page.annotations.isEmpty ? rawSource : try await annotationRenderer.renderJPEG(
+                    sourceData: rawSource,
+                    annotations: page.annotations,
+                    maximumPixelDimension: nil,
+                    quality: 0.95
+                )
                 let rendered = try await compositor.renderJPEG(
                     sourceData: source,
                     config: context.resolvedConfig,

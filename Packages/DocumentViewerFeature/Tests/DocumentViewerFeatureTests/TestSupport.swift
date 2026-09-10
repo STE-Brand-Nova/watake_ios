@@ -106,6 +106,29 @@ actor FakeThumbnailLoader: DocumentPageThumbnailLoading {
     }
 }
 
+actor FakeAnnotationRenderer: PageAnnotationRendering {
+    private let output: Data
+    private var annotations: [PageAnnotation] = []
+
+    init(output: Data) {
+        self.output = output
+    }
+
+    func renderJPEG(
+        sourceData _: Data,
+        annotations: [PageAnnotation],
+        maximumPixelDimension _: Int?,
+        quality _: Double
+    ) async throws -> Data {
+        self.annotations = annotations
+        return output
+    }
+
+    func renderedAnnotations() -> [PageAnnotation] {
+        annotations
+    }
+}
+
 actor FakeOCRStore: DocumentOCRPersisting, DocumentPageAssetLoading {
     private var storedDocument: StoredDocument?
     private var assets: [UUID: Data] = [:]

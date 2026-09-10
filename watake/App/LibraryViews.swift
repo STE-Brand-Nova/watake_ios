@@ -238,6 +238,7 @@ private struct FolderDocumentsView: View {
                     DocumentViewerView(
                         model: store.documentViewerModel(for: documentID),
                         presetStore: store.watermarkPresetStore,
+                        editingStore: store.documentEditingStore,
                         onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: false) },
                         watermarkedCopies: store.watermarkCopySummaries(for: documentID),
                         onWatermarkedCopyRequested: {
@@ -251,8 +252,9 @@ private struct FolderDocumentsView: View {
                         },
                         onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: false) },
                         onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: false) },
-                        onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: false) },
+                        onExportRequested: { requestDocumentAction(.export($0), viewerIsCompact: false) },
                         onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: false) },
+                        onEditPersisted: store.documentEditorDidPersist,
                         onClose: { store.closeDocument() }
                     )
                     .toolbar {
@@ -273,6 +275,7 @@ private struct FolderDocumentsView: View {
                         DocumentViewerView(
                             model: store.documentViewerModel(for: documentID),
                             presetStore: store.watermarkPresetStore,
+                            editingStore: store.documentEditingStore,
                             onWatermarkRequested: { requestWatermarking(documentID: $0, viewerIsCompact: true) },
                             watermarkedCopies: store.watermarkCopySummaries(for: documentID),
                             onWatermarkedCopyRequested: {
@@ -286,8 +289,9 @@ private struct FolderDocumentsView: View {
                             },
                             onRenameRequested: { requestDocumentAction(.rename($0.id), viewerIsCompact: true) },
                             onMoveRequested: { requestDocumentAction(.move($0.id), viewerIsCompact: true) },
-                            onExportRequested: { requestDocumentAction(.export($0.id), viewerIsCompact: true) },
+                            onExportRequested: { requestDocumentAction(.export($0), viewerIsCompact: true) },
                             onDeleteRequested: { requestDocumentAction(.delete($0.id), viewerIsCompact: true) },
+                            onEditPersisted: store.documentEditorDidPersist,
                             onClose: { store.closeDocument() }
                         )
                         .toolbar {
@@ -473,10 +477,8 @@ extension FolderDocumentsView {
                                 Text(document.name).foregroundStyle(WatakeColor.text.primary)
                                 Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
                                     .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
-                                Text(
-                                    "\(store.copyCount(for: document.id)) watermarked cop\(store.copyCount(for: document.id) == 1 ? "y" : "ies")"
-                                )
-                                .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                                Text(copyCountLabel(for: document))
+                                    .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
                                 if !document.tagIds.isEmpty {
                                     DocumentTagChips(store: store, tagIds: document.tagIds)
                                 }
@@ -507,6 +509,11 @@ extension FolderDocumentsView {
                 WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
             }
         }
+    }
+
+    private func copyCountLabel(for document: StoredDocument) -> String {
+        let copyCount = store.copyCount(for: document.id)
+        return "\(copyCount) watermarked cop\(copyCount == 1 ? "y" : "ies")"
     }
 
     private func startWatermarking(documentIDs: Set<UUID>) {
@@ -572,6 +579,10 @@ extension FolderDocumentsView {
     }
 
     private func performDocumentAction(_ action: ViewerDocumentAction) {
+        if case .export(let document) = action {
+            exportModel = store.makeExportModel(for: [document])
+            return
+        }
         guard let document = store.documents(forIDs: [action.documentID]).first else { return }
         switch action {
         case .rename:
@@ -580,7 +591,7 @@ extension FolderDocumentsView {
         case .move:
             movingDocument = document
         case .export:
-            exportModel = store.makeExportModel(for: [document.id])
+            break
         case .delete:
             Task {
                 if await store.trashDocument(document) {

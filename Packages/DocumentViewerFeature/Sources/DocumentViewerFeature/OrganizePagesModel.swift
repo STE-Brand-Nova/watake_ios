@@ -150,7 +150,8 @@ final class OrganizePagesModel {
             source: page.source,
             rectified: page.rectified,
             ocrText: page.ocrText,
-            ocrBlocks: page.ocrBlocks
+            ocrBlocks: page.ocrBlocks,
+            annotations: page.annotations
         )
     }
 

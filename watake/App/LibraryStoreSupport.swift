@@ -1,7 +1,64 @@
 import CaptureServices
+import DocumentProcessing
 import DocumentViewerFeature
 import Foundation
 import WatakeDomain
+import WatakeStorage
+
+actor AnnotationAwareThumbnailLoader: DocumentPageThumbnailLoading {
+    private let base: any DocumentPageThumbnailLoading
+    private let assetStore: any DocumentAssetStore
+    private let renderer: any PageAnnotationRendering
+
+    init(base: any DocumentPageThumbnailLoading, assetStore: any DocumentAssetStore) {
+        self.base = base
+        self.assetStore = assetStore
+        renderer = PageAnnotationCompositor(assetStore: assetStore)
+    }
+
+    func thumbnail(for page: DocumentPage) async throws -> Data {
+        guard !page.annotations.isEmpty else { return try await base.thumbnail(for: page) }
+        let source: Data = if let rectified = page.rectified, let data = try? await assetStore.readAsset(rectified) {
+            data
+        } else {
+            try await assetStore.readAsset(page.source)
+        }
+        return try await renderer.renderJPEG(
+            sourceData: source,
+            annotations: page.annotations,
+            maximumPixelDimension: 224,
+            quality: 0.85
+        )
+    }
+}
+
+@MainActor
+extension LibraryStore {
+    var documentEditingStore: any DocumentEditingStore {
+        storage
+    }
+
+    func documentEditorDidPersist(_ document: StoredDocument, isCopy: Bool) {
+        if isCopy {
+            selectedFolderID = document.folderId
+            selectedDocumentID = document.id
+            mostRecentlyUsedFolder = document.folderId
+        }
+        Task { await load() }
+    }
+
+    func watermarkPreviewData(for document: StoredDocument) async -> Data? {
+        guard let page = document.pages.min(by: { $0.index < $1.index }) else { return nil }
+        guard let data = try? await storage.readAsset(page.rectified ?? page.source) else { return nil }
+        guard !page.annotations.isEmpty else { return data }
+        return try? await PageAnnotationCompositor(assetStore: storage).renderJPEG(
+            sourceData: data,
+            annotations: page.annotations,
+            maximumPixelDimension: 2048,
+            quality: 0.92
+        )
+    }
+}
 
 enum DocumentLayout: String, CaseIterable {
     case list
@@ -77,12 +134,13 @@ struct ViewerCopiesTransition: Equatable {
 enum ViewerDocumentAction: Equatable {
     case rename(UUID)
     case move(UUID)
-    case export(UUID)
+    case export(StoredDocument)
     case delete(UUID)
 
     var documentID: UUID {
         switch self {
-        case .rename(let id), .move(let id), .export(let id), .delete(let id): id
+        case .rename(let id), .move(let id), .delete(let id): id
+        case .export(let document): document.id
         }
     }
 }

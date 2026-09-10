@@ -206,6 +206,47 @@ struct WatermarkIssuanceServiceTests {
         #expect(outputSize.1 == 120)
     }
 
+    @Test func positiveImageLayerRotationIsClockwiseLikeSwiftUIPreview() async throws {
+        let source = SyntheticImage.makePNGData(width: 300, height: 300, red: 1, green: 1, blue: 1)
+        let marker = SyntheticImage.makeTopBottomPNGData(
+            width: 40,
+            height: 80,
+            topColor: SyntheticColor(red: 1, green: 0, blue: 0),
+            bottomColor: SyntheticColor(red: 0, green: 0, blue: 1)
+        )
+        let reference = SyntheticImage.makeAssetReference(pageId: UUID(), data: marker)
+        let config = WatermarkConfig(
+            automatic: false,
+            image: WatermarkImageLayer(
+                enabled: true,
+                assetRef: reference,
+                scale: 1,
+                rotation: 90,
+                opacity: 1,
+                placement: .aboveText
+            ),
+            globalPosition: .center,
+            globalRotation: 0,
+            globalOpacity: 1
+        )
+
+        let result = try await WatermarkPageCompositor().renderJPEG(
+            sourceData: source,
+            config: config,
+            imageData: marker,
+            quality: 1
+        )
+        let rendered = try #require(CGImageSourceCreateWithData(result as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(rendered, 0, nil))
+        let left = try sampledPixel(in: image, column: 130, row: 150)
+        let right = try sampledPixel(in: image, column: 170, row: 150)
+
+        #expect(left.blue > 0.75)
+        #expect(left.red < 0.25)
+        #expect(right.red > 0.75)
+        #expect(right.blue < 0.25)
+    }
+
     private func templateConfig(layoutMode: WatermarkLayoutMode = .single) -> WatermarkConfig {
         WatermarkConfig(
             automatic: false,
@@ -236,6 +277,23 @@ struct WatermarkIssuanceServiceTests {
               let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
               let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue else { return nil }
         return (width, height)
+    }
+
+    private func sampledPixel(in image: CGImage, column: Int, row: Int) throws -> (red: Double, blue: Double) {
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let context = try #require(CGContext(
+            data: &bytes,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.interpolationQuality = .none
+        context.translateBy(x: CGFloat(-column), y: CGFloat(-(image.height - row - 1)))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return (Double(bytes[0]) / 255, Double(bytes[2]) / 255)
     }
 }
 
