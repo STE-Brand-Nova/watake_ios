@@ -746,7 +746,7 @@
 
     extension View {
         fileprivate func imageLayout(base: CGFloat, layer: EditableWatermarkImageLayer) -> some View {
-            aspectRatio(contentMode: .fit)
+            scaledToFit()
                 .frame(width: base * layer.scale, height: base * layer.scale)
                 .rotationEffect(.degrees(layer.rotation))
                 .opacity(layer.opacity)

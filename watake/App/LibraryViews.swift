@@ -477,10 +477,8 @@ extension FolderDocumentsView {
                                 Text(document.name).foregroundStyle(WatakeColor.text.primary)
                                 Text("\(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
                                     .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
-                                Text(
-                                    "\(store.copyCount(for: document.id)) watermarked cop\(store.copyCount(for: document.id) == 1 ? "y" : "ies")"
-                                )
-                                .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
+                                Text(copyCountLabel(for: document))
+                                    .watakeType(.caption).foregroundStyle(WatakeColor.text.secondary)
                                 if !document.tagIds.isEmpty {
                                     DocumentTagChips(store: store, tagIds: document.tagIds)
                                 }
@@ -511,6 +509,11 @@ extension FolderDocumentsView {
                 WatakeEmptyState(systemImage: "doc.badge.plus", title: "Nothing here yet.", message: "Capture a document to get started.")
             }
         }
+    }
+
+    private func copyCountLabel(for document: StoredDocument) -> String {
+        let copyCount = store.copyCount(for: document.id)
+        return "\(copyCount) watermarked cop\(copyCount == 1 ? "y" : "ies")"
     }
 
     private func startWatermarking(documentIDs: Set<UUID>) {
