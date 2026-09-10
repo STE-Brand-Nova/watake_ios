@@ -36,9 +36,44 @@ enum DocumentAnnotationInteraction {
         )
     }
 
+    static func rotated(
+        from start: AnnotationTransform,
+        startLocation: CGPoint,
+        location: CGPoint,
+        pageSize: CGSize
+    ) -> AnnotationTransform {
+        guard pageSize.width > 0, pageSize.height > 0 else { return start }
+        let center = CGPoint(x: start.centerX * pageSize.width, y: start.centerY * pageSize.height)
+        let startAngle = atan2(startLocation.y - center.y, startLocation.x - center.x)
+        let currentAngle = atan2(location.y - center.y, location.x - center.x)
+        var delta = currentAngle - startAngle
+        if delta > .pi {
+            delta -= 2 * .pi
+        } else if delta < -.pi {
+            delta += 2 * .pi
+        }
+        return AnnotationTransform(
+            centerX: start.centerX,
+            centerY: start.centerY,
+            width: start.width,
+            height: start.height,
+            rotation: normalizedRotation(start.rotation + delta * 180 / .pi)
+        )
+    }
+
     private static func clampedCenter(_ value: Double) -> Double {
         let snapped = abs(value - 0.5) <= 0.015 ? 0.5 : value
         return min(max(snapped, 0), 1)
+    }
+
+    private static func normalizedRotation(_ value: Double) -> Double {
+        var output = value.truncatingRemainder(dividingBy: 360)
+        if output > 180 {
+            output -= 360
+        } else if output < -180 {
+            output += 360
+        }
+        return output
     }
 }
 

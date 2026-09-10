@@ -11,6 +11,7 @@
         let showTextStyle: (UUID) -> Void
         @State private var dragStart: AnnotationTransform?
         @State private var resizeStart: AnnotationTransform?
+        @State private var rotationStart: AnnotationTransform?
         @State private var interactionTransform: AnnotationTransform?
         @State private var lastScale = 1.0
         @State private var lastRotation = Angle.zero
@@ -79,6 +80,16 @@
                 selectionHandle(icon: "arrow.down.right.and.arrow.up.left", label: "Resize text")
                     .position(x: proxy.size.width, y: proxy.size.height)
                     .gesture(resizeGesture)
+
+                selectionHandle(icon: "rotate.right", label: "Rotate text")
+                    .position(x: proxy.size.width / 2, y: proxy.size.height)
+                    .gesture(rotationGesture)
+                    .accessibilityAction(named: "Rotate clockwise") {
+                        rotateSelected(by: 15)
+                    }
+                    .accessibilityAction(named: "Rotate counterclockwise") {
+                        rotateSelected(by: -15)
+                    }
             }
         }
 
@@ -132,17 +143,50 @@
                     )
                 }
                 .onEnded { _ in
-                    guard let transform = interactionTransform, resizeStart != nil else { return }
-                    model.selectAnnotation(annotation.id)
-                    model.transformSelected(
-                        centerX: transform.centerX,
-                        centerY: transform.centerY,
-                        width: transform.width,
-                        height: transform.height
-                    )
+                    guard let transform = interactionTransform, let start = resizeStart else { return }
+                    if transform != start {
+                        model.selectAnnotation(annotation.id)
+                        model.transformSelected(
+                            centerX: transform.centerX,
+                            centerY: transform.centerY,
+                            width: transform.width,
+                            height: transform.height
+                        )
+                    }
                     resizeStart = nil
                     interactionTransform = nil
                 }
+        }
+
+        private var rotationGesture: some Gesture {
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
+                .onChanged { value in
+                    if rotationStart == nil {
+                        model.selectAnnotation(annotation.id)
+                        rotationStart = annotation.transform
+                    }
+                    guard let start = rotationStart else { return }
+                    interactionTransform = DocumentAnnotationInteraction.rotated(
+                        from: start,
+                        startLocation: value.startLocation,
+                        location: value.location,
+                        pageSize: pageSize
+                    )
+                }
+                .onEnded { _ in
+                    guard let transform = interactionTransform, let start = rotationStart else { return }
+                    if transform != start {
+                        model.selectAnnotation(annotation.id)
+                        model.transformSelected(rotationDelta: transform.rotation - start.rotation)
+                    }
+                    rotationStart = nil
+                    interactionTransform = nil
+                }
+        }
+
+        private func rotateSelected(by degrees: Double) {
+            model.selectAnnotation(annotation.id)
+            model.transformSelected(rotationDelta: degrees)
         }
 
         @ViewBuilder private var content: some View {

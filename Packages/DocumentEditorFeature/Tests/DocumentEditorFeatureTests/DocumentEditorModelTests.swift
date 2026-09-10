@@ -90,6 +90,37 @@ struct DocumentEditorModelTests {
     }
 
     @Test
+    func textRotationPreviewUsesStablePageRelativeAngle() {
+        let start = AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.2, rotation: 15)
+        let rotated = DocumentAnnotationInteraction.rotated(
+            from: start,
+            startLocation: CGPoint(x: 250, y: 400),
+            location: CGPoint(x: 350, y: 500),
+            pageSize: CGSize(width: 500, height: 1000)
+        )
+
+        #expect(abs(rotated.rotation - 105) < 0.000_001)
+        #expect(rotated.centerX == start.centerX)
+        #expect(rotated.centerY == start.centerY)
+        #expect(rotated.width == start.width)
+        #expect(rotated.height == start.height)
+    }
+
+    @Test @MainActor
+    func copiedTextPreservesPositionSizeAndRotation() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText("Rotated")
+        model.transformSelected(centerX: 0.24, centerY: 0.68, width: 0.42, height: 0.18, rotationDelta: 37)
+        let originalTransform = model.selectedAnnotation?.transform
+
+        model.duplicateSelected()
+
+        #expect(model.selectedPage?.annotations.count == 2)
+        #expect(model.selectedAnnotation?.transform == originalTransform)
+    }
+
+    @Test
     func textPaletteIncludesWhite() {
         #expect(DocumentEditorPalette.textColors.contains("#FFFFFF"))
     }
