@@ -147,6 +147,7 @@ extension DocumentEditorModel {
         guard document.pages.contains(where: { $0.id == pageID }) else { return }
         selectedPageID = pageID
         selectedAnnotationID = nil
+        tool = .select
         continuousBaseline = nil
         retainImageCaches(for: pageID)
         Task { await loadImagesForSelectedPage() }
@@ -187,6 +188,14 @@ extension DocumentEditorModel {
     public func setHighlightDrawingColor(_ colorHex: String) {
         guard DocumentEditorPalette.highlightColors.contains(colorHex) else { return }
         highlightColorHex = colorHex
+    }
+
+    public func setHighlightDrawingStyle(width: Double, colorHex: String, opacity: Double) {
+        highlightWidth = min(max(width, 0.008), 0.06)
+        if DocumentEditorPalette.highlightColors.contains(colorHex) {
+            highlightColorHex = colorHex
+        }
+        highlightOpacity = min(max(opacity, 0), 1)
     }
 
     public func setHighlightAutoStraighten(_ enabled: Bool) {
@@ -254,7 +263,8 @@ extension DocumentEditorModel {
             strokes: [prepared.stroke],
             isStraightened: straightened
         )
-        append(annotation)
+        append(annotation, selectsAnnotation: false)
+        tool = .highlight
     }
 
     public func importImage(data: Data, mediaType: String, fileExtension: String) async -> Bool {
@@ -560,11 +570,15 @@ extension DocumentEditorModel {
         (selectedPage?.annotations.map(\.zIndex).max() ?? -1) + 1
     }
 
-    private func append(_ annotation: PageAnnotation) {
+    private func append(_ annotation: PageAnnotation, selectsAnnotation: Bool = true) {
         guard let page = selectedPage else { return }
         setAnnotations(page.annotations + [annotation], recording: page.annotations)
-        selectedAnnotationID = annotation.id
-        tool = annotation.kind == .text ? .text : .select
+        if selectsAnnotation {
+            selectedAnnotationID = annotation.id
+            tool = annotation.kind == .text ? .text : .select
+        } else {
+            selectedAnnotationID = nil
+        }
     }
 
     private func replaceSelected(recordHistory: Bool = true, _ transform: (PageAnnotation) -> PageAnnotation) {

@@ -40,7 +40,8 @@
                         widthClass: widthClass,
                         editText: beginEditingText,
                         showTextStyle: showTextStyle,
-                        showHighlightStyle: showHighlightStyle,
+                        showHighlightStyle: { showHighlightStyle($0) },
+                        showHighlightDrawingStyle: { showHighlightStyle(nil) },
                         addText: beginAddingText,
                         showSignature: { showsSignature = true },
                         showPageTargets: { showsPageTargets = true }
@@ -276,8 +277,10 @@
             showsTextStyle = true
         }
 
-        private func showHighlightStyle(_ annotationID: UUID) {
-            model.selectAnnotation(annotationID)
+        private func showHighlightStyle(_ annotationID: UUID?) {
+            if let annotationID {
+                model.selectAnnotation(annotationID)
+            }
             showsHighlightStyle = true
         }
     }
@@ -381,6 +384,7 @@
                     }
                     .background(WatakeColor.surface.sunken)
                     .scrollIndicators(.hidden)
+                    .scrollDisabled(model.selectedAnnotation?.kind == .highlight)
                     .simultaneousGesture(zoomGesture)
                     .overlay(alignment: .bottomTrailing) { zoomControls }
                 } else {

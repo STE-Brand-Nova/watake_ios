@@ -37,9 +37,9 @@
                             model.selectAnnotation(annotation.id)
                         }
                     }
-                    .gesture(moveGesture)
-                if isSelected, movePreview == nil {
-                    if annotation.kind == .text {
+                    .gesture(moveGesture(forceHighlight: false).simultaneously(with: scaleAndRotationGesture))
+                if isSelected {
+                    if annotation.kind == .text, movePreview == nil {
                         Rectangle()
                             .stroke(WatakeColor.brand.primary, lineWidth: 2)
                             .allowsHitTesting(false)
@@ -48,13 +48,14 @@
                         HighlightContextToolbar(
                             isAdjusting: $adjustsHighlight,
                             appearsBelow: highlightAppearsNearPageTop,
+                            moveGesture: moveGesture(forceHighlight: true),
                             delete: {
                                 model.selectAnnotation(annotation.id)
                                 model.deleteSelected()
                             },
                             showMore: { showHighlightStyle(annotation.id) }
                         )
-                    } else {
+                    } else if movePreview == nil {
                         Rectangle()
                             .stroke(WatakeColor.brand.primary, lineWidth: 2)
                             .allowsHitTesting(false)
@@ -247,10 +248,10 @@
             }
         }
 
-        private var moveGesture: some Gesture {
+        private func moveGesture(forceHighlight: Bool) -> some Gesture {
             DragGesture(coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
                 .updating($movePreview) { value, preview, _ in
-                    guard canTransform else { return }
+                    guard canTransform(forceHighlight: forceHighlight) else { return }
                     preview = DocumentAnnotationInteraction.moved(
                         from: annotation.transform,
                         translation: value.translation,
@@ -258,7 +259,7 @@
                     )
                 }
                 .onEnded { value in
-                    guard canTransform else { return }
+                    guard canTransform(forceHighlight: forceHighlight) else { return }
                     let transform = DocumentAnnotationInteraction.moved(
                         from: annotation.transform,
                         translation: value.translation,
@@ -275,7 +276,6 @@
                         }
                     }
                 }
-                .simultaneously(with: scaleAndRotationGesture)
         }
 
         private var scaleAndRotationGesture: some Gesture {
@@ -310,9 +310,9 @@
                 }
         }
 
-        private var canTransform: Bool {
+        private func canTransform(forceHighlight: Bool) -> Bool {
             if annotation.kind == .highlight {
-                return model.tool == .select && isSelected && adjustsHighlight
+                return model.tool == .select && isSelected && (forceHighlight || adjustsHighlight)
             }
             return model.tool == .select || (model.tool == .text && annotation.kind == .text)
         }

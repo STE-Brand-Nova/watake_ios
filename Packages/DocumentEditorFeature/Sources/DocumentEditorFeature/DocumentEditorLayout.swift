@@ -10,6 +10,7 @@
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
+        let showHighlightDrawingStyle: () -> Void
         let addText: () -> Void
         let showSignature: () -> Void
         let showPageTargets: () -> Void
@@ -37,7 +38,8 @@
                     model: model,
                     photoItem: $photoItem,
                     addText: addText,
-                    showSignature: showSignature
+                    showSignature: showSignature,
+                    showHighlightStyle: showHighlightDrawingStyle
                 )
                 if let annotation = model.selectedAnnotation,
                    annotation.kind != .text,
@@ -65,7 +67,8 @@
                         model: model,
                         photoItem: $photoItem,
                         addText: addText,
-                        showSignature: showSignature
+                        showSignature: showSignature,
+                        showHighlightStyle: showHighlightDrawingStyle
                     )
                 }
                 Divider()
@@ -84,11 +87,19 @@
         @Binding var photoItem: PhotosPickerItem?
         let addText: () -> Void
         let showSignature: () -> Void
+        let showHighlightStyle: () -> Void
+        @AppStorage("watake.editor.didShowHighlightGuide.v1") private var didShowHighlightGuide = false
+        @State private var showsHighlightGuide = false
 
         var body: some View {
             VStack(spacing: 0) {
                 if model.tool == .highlight {
-                    HighlightDrawControls(model: model)
+                    HighlightDrawControls(
+                        model: model,
+                        showsGuide: $showsHighlightGuide,
+                        showStyle: showHighlightStyle,
+                        dismissGuide: { showsHighlightGuide = false }
+                    )
                 }
                 HStack(spacing: WatakeSpacing.xs) {
                     toolButton(.select, icon: "hand.point.up.left") { model.activateTool(.select) }
@@ -117,6 +128,15 @@
                 .frame(maxWidth: .infinity)
                 .background(WatakeColor.surface.raised)
                 .overlay(alignment: .top) { Divider() }
+            }
+            .onChange(of: model.tool, initial: true) { _, tool in
+                guard tool == .highlight else {
+                    showsHighlightGuide = false
+                    return
+                }
+                guard !didShowHighlightGuide else { return }
+                didShowHighlightGuide = true
+                showsHighlightGuide = true
             }
         }
 
