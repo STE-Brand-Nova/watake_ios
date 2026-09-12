@@ -64,6 +64,10 @@ public final class DocumentEditorModel {
     public private(set) var errorMessage: String?
     public private(set) var toastMessage: String?
     public private(set) var toastRevision = 0
+    public private(set) var highlightColorHex = "#FBBF24"
+    public private(set) var highlightOpacity = 0.42
+    public private(set) var highlightWidth = 0.025
+    public private(set) var autoStraightenHighlights = true
 
     private let store: any DocumentEditingStore
     private let now: @Sendable () -> Date
@@ -168,13 +172,25 @@ extension DocumentEditorModel {
         guard let annotationID,
               let annotation = selectedPage?.annotations.first(where: { $0.id == annotationID }) else { return }
         tool = annotation.kind == .text ? .text : .select
+        if annotation.kind == .highlight, let stroke = annotation.strokes.first {
+            highlightColorHex = stroke.colorHex
+            highlightOpacity = stroke.opacity
+            highlightWidth = stroke.width
+        }
     }
 
     public func activateTool(_ tool: DocumentEditorTool) {
-        if tool != .text, selectedAnnotation?.kind == .text {
-            selectedAnnotationID = nil
-        }
+        selectedAnnotationID = nil
         self.tool = tool
+    }
+
+    public func setHighlightDrawingColor(_ colorHex: String) {
+        guard DocumentEditorPalette.highlightColors.contains(colorHex) else { return }
+        highlightColorHex = colorHex
+    }
+
+    public func setHighlightAutoStraighten(_ enabled: Bool) {
+        autoStraightenHighlights = enabled
     }
 }
 
@@ -222,20 +238,20 @@ extension DocumentEditorModel {
         }
     }
 
-    public func addHighlight(points: [InkPoint], straightened: Bool) {
-        guard points.count >= 2 else { return }
-        let finalPoints: [InkPoint] = if straightened, let first = points.first, let last = points.last {
-            [first, last]
-        } else {
-            points
-        }
-        let stroke = InkStroke(points: finalPoints, width: 0.025, colorHex: "#FBBF24", opacity: 0.42)
+    public func addHighlight(points: [InkPoint], pageSize: CGSize, straightened: Bool) {
+        guard let prepared = DocumentHighlightInteraction.prepare(
+            points: points,
+            pageSize: pageSize,
+            width: highlightWidth,
+            colorHex: highlightColorHex,
+            opacity: highlightOpacity
+        ) else { return }
         let annotation = PageAnnotation(
             id: makeUUID(),
             kind: .highlight,
-            transform: .init(centerX: 0.5, centerY: 0.5, width: 1, height: 1),
+            transform: prepared.transform,
             zIndex: nextZIndex,
-            strokes: [stroke],
+            strokes: [prepared.stroke],
             isStraightened: straightened
         )
         append(annotation)
@@ -312,9 +328,11 @@ extension DocumentEditorModel {
     }
 
     public func updateSelectedStrokeStyle(width: Double, colorHex: String, opacity: Double) {
-        replaceSelected { current in
+        let clampedWidth = min(max(width, 0.002), 0.08)
+        let clampedOpacity = min(max(opacity, 0), 1)
+        replaceSelected(recordHistory: continuousBaseline == nil) { current in
             let strokes = current.strokes.map {
-                InkStroke(points: $0.points, width: width, colorHex: colorHex, opacity: opacity)
+                InkStroke(points: $0.points, width: clampedWidth, colorHex: colorHex, opacity: clampedOpacity)
             }
             return PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
@@ -322,10 +340,17 @@ extension DocumentEditorModel {
                 isStraightened: current.isStraightened
             )
         }
+        if selectedAnnotation?.kind == .highlight {
+            highlightWidth = clampedWidth
+            highlightColorHex = colorHex
+            highlightOpacity = clampedOpacity
+        }
     }
 
     public func beginContinuousEdit() {
-        continuousBaseline = selectedPage?.annotations
+        if continuousBaseline == nil {
+            continuousBaseline = selectedPage?.annotations
+        }
     }
 
     public func transformSelected(

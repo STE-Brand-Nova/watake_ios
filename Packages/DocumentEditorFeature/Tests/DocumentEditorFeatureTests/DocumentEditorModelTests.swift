@@ -315,7 +315,7 @@ struct DocumentEditorModelTests {
     }
 }
 
-private final class EditorFixture: @unchecked Sendable {
+final class EditorFixture: @unchecked Sendable {
     let folderID = UUID()
     let documentID = UUID()
     let firstPageID = UUID()
@@ -346,7 +346,7 @@ private final class EditorFixture: @unchecked Sendable {
     }
 }
 
-private actor MemoryEditorStore: DocumentEditingStore {
+actor MemoryEditorStore: DocumentEditingStore {
     private var storedDocument: StoredDocument
     private let folder: Folder
     private var recovery: DocumentEditRecoveryDraft?
