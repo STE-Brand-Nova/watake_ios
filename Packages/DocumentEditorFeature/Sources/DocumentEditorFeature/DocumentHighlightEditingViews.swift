@@ -11,36 +11,45 @@
 
         var body: some View {
             HStack(spacing: WatakeSpacing.xs) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: WatakeSpacing.sm) {
-                        Text("Highlight color")
-                            .watakeType(.caption)
-                            .foregroundStyle(WatakeColor.text.secondary)
-                        ForEach(DocumentEditorPalette.highlightColors, id: \.self) { hex in
-                            HighlightColorButton(
-                                hex: hex,
-                                isSelected: model.highlightColorHex == hex,
-                                action: { model.setHighlightDrawingColor(hex) }
-                            )
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: WatakeSpacing.sm) {
+                            Text("Highlight color")
+                                .watakeType(.caption)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                            ForEach(DocumentEditorPalette.highlightColors, id: \.self) { hex in
+                                HighlightColorButton(
+                                    hex: hex,
+                                    isSelected: model.highlightColorHex == hex,
+                                    action: { model.setHighlightDrawingColor(hex) }
+                                )
+                            }
+                            Divider().frame(height: 28)
+                            Button {
+                                model.setHighlightAutoStraighten(!model.autoStraightenHighlights)
+                            } label: {
+                                Label(
+                                    "Auto-straighten",
+                                    systemImage: model.autoStraightenHighlights ? "checkmark.circle.fill" : "circle"
+                                )
+                                .watakeType(.caption)
+                                .foregroundStyle(
+                                    model.autoStraightenHighlights
+                                        ? WatakeColor.brand.primary
+                                        : WatakeColor.text.secondary
+                                )
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityValue(model.autoStraightenHighlights ? "On" : "Off")
+                            .id(ScrollTarget.autoStraighten)
                         }
-                        Divider().frame(height: 28)
-                        Button {
-                            model.setHighlightAutoStraighten(!model.autoStraightenHighlights)
-                        } label: {
-                            Label(
-                                "Auto-straighten",
-                                systemImage: model.autoStraightenHighlights ? "checkmark.circle.fill" : "circle"
-                            )
-                            .watakeType(.caption)
-                            .foregroundStyle(
-                                model.autoStraightenHighlights ? WatakeColor.brand.primary : WatakeColor.text.secondary
-                            )
-                            .frame(minHeight: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityValue(model.autoStraightenHighlights ? "On" : "Off")
+                        .padding(.leading, WatakeSpacing.sm)
                     }
-                    .padding(.leading, WatakeSpacing.sm)
+                    .task {
+                        await Task.yield()
+                        scrollProxy.scrollTo(ScrollTarget.autoStraighten, anchor: .trailing)
+                    }
                 }
                 Divider().frame(height: 32)
                 Button {
@@ -66,6 +75,10 @@
             .frame(minHeight: 52)
             .background(WatakeColor.surface.raised)
             .overlay(alignment: .top) { Divider() }
+        }
+
+        private enum ScrollTarget: Hashable {
+            case autoStraighten
         }
     }
 
