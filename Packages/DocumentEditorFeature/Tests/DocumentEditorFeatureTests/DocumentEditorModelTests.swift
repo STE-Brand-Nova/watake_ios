@@ -313,6 +313,41 @@ struct DocumentEditorModelTests {
 
         #expect(model.annotationImages[image.id] == imageData)
     }
+
+    @Test @MainActor
+    func pageRailThumbnailCachesUntilPageAnnotationsChange() async throws {
+        let fixture = EditorFixture()
+        let (model, store) = fixture.makeModel()
+        let page = try #require(model.pages.first)
+
+        _ = await model.pageThumbnailData(for: page)
+        _ = await model.pageThumbnailData(for: page)
+        #expect(await store.readAssetCount() == 1)
+
+        model.addText("Refresh thumbnail")
+        let editedPage = try #require(model.pages.first)
+        _ = await model.pageThumbnailData(for: editedPage)
+        _ = await model.pageThumbnailData(for: editedPage)
+        #expect(await store.readAssetCount() == 2)
+    }
+
+    @Test @MainActor
+    func continuousLayerOpacityChangesCreateOneUndoCommand() {
+        let fixture = EditorFixture()
+        let (model, _) = fixture.makeModel()
+        model.addText("Opacity")
+
+        model.beginContinuousEdit()
+        model.updateSelectedOpacity(0.7)
+        model.updateSelectedOpacity(0.4)
+        model.endContinuousEdit()
+
+        #expect(model.selectedAnnotation?.opacity == 0.4)
+        model.undo()
+        #expect(model.selectedPage?.annotations.first?.opacity == 1)
+        model.undo()
+        #expect(model.selectedPage?.annotations.isEmpty == true)
+    }
 }
 
 final class EditorFixture: @unchecked Sendable {
@@ -353,6 +388,7 @@ actor MemoryEditorStore: DocumentEditingStore {
     private var shouldFailEditedSave = false
     private var discardedAssets: [AssetReference] = []
     private var assets: [UUID: Data] = [:]
+    private var assetReadCount = 0
     init(document: StoredDocument, folder: Folder) {
         storedDocument = document
         self.folder = folder
@@ -382,6 +418,10 @@ actor MemoryEditorStore: DocumentEditingStore {
         discardedAssets.count
     }
 
+    func readAssetCount() -> Int {
+        assetReadCount
+    }
+
     func document(id: UUID) -> StoredDocument? {
         id == storedDocument.id ? storedDocument : nil
     }
@@ -395,7 +435,8 @@ actor MemoryEditorStore: DocumentEditingStore {
     }
 
     func readAsset(_ reference: AssetReference) throws -> Data {
-        assets[reference.id] ?? Data([0])
+        assetReadCount += 1
+        return assets[reference.id] ?? Data([0])
     }
 
     func stageAnnotationAsset(_ data: Data, reference: AssetReference) {

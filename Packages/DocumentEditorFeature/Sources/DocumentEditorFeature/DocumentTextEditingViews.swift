@@ -158,7 +158,7 @@
                                 .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
+                        .accessibilityLabel("Choose \(DocumentEditorPalette.colorName(for: hex).lowercased()) text color")
                     }
                 }
             }

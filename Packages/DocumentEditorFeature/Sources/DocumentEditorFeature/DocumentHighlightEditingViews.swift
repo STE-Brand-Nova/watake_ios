@@ -6,8 +6,10 @@
     struct HighlightDrawControls: View {
         @Bindable var model: DocumentEditorModel
         @Binding var showsGuide: Bool
+        let shouldPresentGuide: Bool
         let showStyle: () -> Void
         let dismissGuide: () -> Void
+        let markGuideShown: () -> Void
 
         var body: some View {
             HStack(spacing: WatakeSpacing.xs) {
@@ -67,7 +69,7 @@
                 .buttonStyle(.plain)
                 .accessibilityLabel("Highlight Style")
                 .popover(isPresented: $showsGuide, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                    HighlightGuide(showStyle: showStyle, dismiss: dismissGuide)
+                    HighlightGuide(showStyle: showStyle, dismiss: dismissGuide, markShown: markGuideShown)
                         .presentationCompactAdaptation(.popover)
                 }
                 .padding(.trailing, WatakeSpacing.xs)
@@ -75,6 +77,11 @@
             .frame(minHeight: 52)
             .background(WatakeColor.surface.raised)
             .overlay(alignment: .top) { Divider() }
+            .task {
+                guard shouldPresentGuide else { return }
+                await Task.yield()
+                showsGuide = true
+            }
         }
 
         private enum ScrollTarget: Hashable {
@@ -135,7 +142,7 @@
                                     get: { currentWidth },
                                     set: { update(width: $0) }
                                 ),
-                                in: 0.008 ... 0.06,
+                                in: DocumentEditorPalette.highlightWidthRange,
                                 onEditingChanged: handleContinuousEdit
                             )
                         }
@@ -151,6 +158,7 @@
                 }
             }
             .presentationDetents([.medium, .large])
+            .onDisappear { model.endContinuousEdit() }
         }
 
         private var selectedStroke: InkStroke? {
@@ -158,7 +166,7 @@
         }
 
         private var currentWidth: Double {
-            selectedStroke?.width ?? model.highlightWidth
+            DocumentEditorPalette.clampedHighlightWidth(selectedStroke?.width ?? model.highlightWidth)
         }
 
         private var currentColorHex: String {
@@ -201,6 +209,7 @@
     private struct HighlightGuide: View {
         let showStyle: () -> Void
         let dismiss: () -> Void
+        let markShown: () -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.md) {
@@ -234,6 +243,7 @@
             .padding(WatakeSpacing.md)
             .frame(idealWidth: 320)
             .background(WatakeColor.surface.raised)
+            .onAppear(perform: markShown)
         }
 
         private func guideRow(icon: String, text: String) -> some View {
@@ -268,7 +278,7 @@
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Choose highlight color \(hex)")
+            .accessibilityLabel("Choose \(DocumentEditorPalette.colorName(for: hex).lowercased()) highlight color")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
         }
     }

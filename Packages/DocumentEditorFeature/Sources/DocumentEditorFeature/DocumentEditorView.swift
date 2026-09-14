@@ -346,11 +346,10 @@
                     Rectangle().fill(WatakeColor.surface.sunken).overlay { ProgressView() }
                 }
             }
-            .task(id: page.id) {
-                image = nil
+            .task(id: page) {
                 failed = false
-                guard let data = await model.pageImageData(for: page.id), let source = UIImage(data: data) else {
-                    failed = true
+                guard let data = await model.pageThumbnailData(for: page), let source = UIImage(data: data) else {
+                    failed = image == nil
                     return
                 }
                 image = await source.byPreparingThumbnail(ofSize: CGSize(width: 140, height: 156)) ?? source
@@ -526,7 +525,7 @@
                        hypot(next.location.x - previous.location.x, next.location.y - previous.location.y) < 0.001 {
                         return
                     }
-                    highlightPoints.append(next)
+                    DocumentHighlightInteraction.appendCapturedPoint(next, to: &highlightPoints)
                 }
                 .onEnded { _ in
                     if model.autoStraightenHighlights,
@@ -585,64 +584,67 @@
         let showPageTargets: () -> Void
 
         var body: some View {
-            if let annotation = model.selectedAnnotation {
-                if annotation.kind == .highlight {
+            Group {
+                if let annotation = model.selectedAnnotation {
+                    if annotation.kind == .highlight {
+                        VStack(spacing: WatakeSpacing.sm) {
+                            Image(systemName: "highlighter")
+                                .font(.title2)
+                                .foregroundStyle(WatakeColor.brand.primary)
+                            Text("Use the controls beside the selected highlight to move, delete, or change its style.")
+                                .watakeType(.body)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(WatakeSpacing.md)
+                    } else {
+                        VStack(alignment: .leading, spacing: WatakeSpacing.sm) {
+                            Text(annotation.kind.rawValue.capitalized).watakeType(.title2)
+                            if let text = annotation.text {
+                                textControls(text)
+                            }
+                            if annotation.kind == .signature {
+                                strokeControls(annotation)
+                            }
+                            VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                                Text("Opacity").watakeType(.caption)
+                                Slider(value: Binding(
+                                    get: { model.selectedAnnotation?.opacity ?? 1 },
+                                    set: { model.updateSelectedOpacity($0) }
+                                ), in: 0 ... 1, onEditingChanged: handleContinuousEdit)
+                            }
+                            HStack {
+                                Button { model.sendBackward() } label: { Label("Back", systemImage: "square.2.layers.3d.bottom.filled") }
+                                Button { model.bringForward() } label: { Label("Front", systemImage: "square.2.layers.3d.top.filled") }
+                            }
+                            .buttonStyle(.bordered)
+                            Menu("Duplicate") {
+                                Button("This Page") { model.duplicateSelected() }
+                                Button("Selected Pages…", action: showPageTargets)
+                                Button("All Pages") { model.duplicateSelected(to: Set(model.pages.map(\.id))) }
+                            }
+                            .buttonStyle(.bordered)
+                            Button(role: .destructive) { model.deleteSelected() } label: { Label("Delete Layer", systemImage: "trash") }
+                                .buttonStyle(.bordered)
+                        }
+                        .padding(WatakeSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(WatakeColor.surface.raised)
+                    }
+                } else {
                     VStack(spacing: WatakeSpacing.sm) {
-                        Image(systemName: "highlighter")
-                            .font(.title2)
-                            .foregroundStyle(WatakeColor.brand.primary)
-                        Text("Use the controls beside the selected highlight to move, delete, or change its style.")
+                        Image(systemName: "hand.tap").font(.title2)
+                        Text("Select a layer to edit its style and position.")
                             .watakeType(.body)
                             .foregroundStyle(WatakeColor.text.secondary)
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(WatakeSpacing.md)
-                } else {
-                    VStack(alignment: .leading, spacing: WatakeSpacing.sm) {
-                        Text(annotation.kind.rawValue.capitalized).watakeType(.title2)
-                        if let text = annotation.text {
-                            textControls(text)
-                        }
-                        if annotation.kind == .signature {
-                            strokeControls(annotation)
-                        }
-                        VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
-                            Text("Opacity").watakeType(.caption)
-                            Slider(value: Binding(
-                                get: { model.selectedAnnotation?.opacity ?? 1 },
-                                set: { model.updateSelectedOpacity($0) }
-                            ), in: 0 ... 1)
-                        }
-                        HStack {
-                            Button { model.sendBackward() } label: { Label("Back", systemImage: "square.2.layers.3d.bottom.filled") }
-                            Button { model.bringForward() } label: { Label("Front", systemImage: "square.2.layers.3d.top.filled") }
-                        }
-                        .buttonStyle(.bordered)
-                        Menu("Duplicate") {
-                            Button("This Page") { model.duplicateSelected() }
-                            Button("Selected Pages…", action: showPageTargets)
-                            Button("All Pages") { model.duplicateSelected(to: Set(model.pages.map(\.id))) }
-                        }
-                        .buttonStyle(.bordered)
-                        Button(role: .destructive) { model.deleteSelected() } label: { Label("Delete Layer", systemImage: "trash") }
-                            .buttonStyle(.bordered)
-                    }
-                    .padding(WatakeSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(WatakeColor.surface.raised)
                 }
-            } else {
-                VStack(spacing: WatakeSpacing.sm) {
-                    Image(systemName: "hand.tap").font(.title2)
-                    Text("Select a layer to edit its style and position.")
-                        .watakeType(.body)
-                        .foregroundStyle(WatakeColor.text.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(WatakeSpacing.md)
             }
+            .onDisappear { model.endContinuousEdit() }
         }
 
         private func textControls(_ text: AnnotationText) -> some View {
@@ -698,7 +700,7 @@
                     set: {
                         model.updateSelectedStrokeStyle(width: $0, colorHex: stroke?.colorHex ?? "#0B1220", opacity: stroke?.opacity ?? 1)
                     }
-                ), in: 0.002 ... 0.08)
+                ), in: 0.002 ... 0.08, onEditingChanged: handleContinuousEdit)
                 colorButtons(current: stroke?.colorHex ?? "#0B1220", colors: DocumentEditorPalette.strokeColors) {
                     model.updateSelectedStrokeStyle(width: stroke?.width ?? 0.02, colorHex: $0, opacity: stroke?.opacity ?? 1)
                 }
@@ -713,7 +715,7 @@
                             .overlay(Circle().stroke(current == hex ? WatakeColor.brand.primary : WatakeColor.border.strong, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
+                    .accessibilityLabel("Choose \(DocumentEditorPalette.colorName(for: hex).lowercased()) color")
                 }
             }
         }
@@ -734,6 +736,14 @@
                 isBold: bold ?? current.isBold, isItalic: italic ?? current.isItalic,
                 isUnderlined: underlined ?? current.isUnderlined
             ))
+        }
+
+        private func handleContinuousEdit(_ isEditing: Bool) {
+            if isEditing {
+                model.beginContinuousEdit()
+            } else {
+                model.endContinuousEdit()
+            }
         }
     }
 

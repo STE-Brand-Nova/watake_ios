@@ -88,7 +88,7 @@
         let addText: () -> Void
         let showSignature: () -> Void
         let showHighlightStyle: () -> Void
-        @AppStorage("watake.editor.didShowHighlightGuide.v1") private var didShowHighlightGuide = false
+        @AppStorage("watake.editor.didShowHighlightGuide.v2") private var didShowHighlightGuide = false
         @State private var showsHighlightGuide = false
 
         var body: some View {
@@ -97,8 +97,10 @@
                     HighlightDrawControls(
                         model: model,
                         showsGuide: $showsHighlightGuide,
+                        shouldPresentGuide: !didShowHighlightGuide,
                         showStyle: showHighlightStyle,
-                        dismissGuide: { showsHighlightGuide = false }
+                        dismissGuide: { showsHighlightGuide = false },
+                        markGuideShown: { didShowHighlightGuide = true }
                     )
                 }
                 HStack(spacing: WatakeSpacing.xs) {
@@ -129,14 +131,10 @@
                 .background(WatakeColor.surface.raised)
                 .overlay(alignment: .top) { Divider() }
             }
-            .onChange(of: model.tool, initial: true) { _, tool in
-                guard tool == .highlight else {
+            .onChange(of: model.tool) { _, tool in
+                if tool != .highlight {
                     showsHighlightGuide = false
-                    return
                 }
-                guard !didShowHighlightGuide else { return }
-                didShowHighlightGuide = true
-                showsHighlightGuide = true
             }
         }
 

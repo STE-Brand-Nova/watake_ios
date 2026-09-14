@@ -192,6 +192,9 @@
                 documentEditor = DocumentEditorPresentation(
                     document: document,
                     store: editingStore,
+                    pageThumbnailLoader: { page in
+                        try await model.loadThumbnailData(for: page)
+                    },
                     onPersisted: { updated, isCopy in
                         if !isCopy {
                             model.acceptPersistedDocument(updated)
@@ -322,9 +325,15 @@
         init(
             document: StoredDocument,
             store: any DocumentEditingStore,
+            pageThumbnailLoader: @escaping @MainActor @Sendable (DocumentPage) async throws -> Data,
             onPersisted: @escaping @MainActor @Sendable (StoredDocument, Bool) -> Void
         ) {
-            model = DocumentEditorModel(document: document, store: store, onPersisted: onPersisted)
+            model = DocumentEditorModel(
+                document: document,
+                store: store,
+                pageThumbnailLoader: pageThumbnailLoader,
+                onPersisted: onPersisted
+            )
         }
     }
 
