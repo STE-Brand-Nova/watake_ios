@@ -104,6 +104,238 @@ enum DocumentAnnotationInteraction {
     }
 }
 
+enum ImageResizeCorner: CaseIterable, Sendable {
+    case topLeading
+    case topTrailing
+    case bottomLeading
+    case bottomTrailing
+
+    var horizontalSign: Double {
+        switch self {
+        case .topLeading, .bottomLeading: -1
+        case .topTrailing, .bottomTrailing: 1
+        }
+    }
+
+    var verticalSign: Double {
+        switch self {
+        case .topLeading, .topTrailing: -1
+        case .bottomLeading, .bottomTrailing: 1
+        }
+    }
+
+    var accessibilityName: String {
+        switch self {
+        case .topLeading: "top left"
+        case .topTrailing: "top right"
+        case .bottomLeading: "bottom left"
+        case .bottomTrailing: "bottom right"
+        }
+    }
+}
+
+enum DocumentImageInteraction {
+    static let placementTapThreshold: Double = 12
+    static let rotationSnapThreshold: Double = 7
+
+    static func placement(
+        from start: CGPoint,
+        to end: CGPoint,
+        imageAspectRatio: Double,
+        pageSize: CGSize
+    ) -> AnnotationTransform {
+        guard pageSize.width > 0, pageSize.height > 0, imageAspectRatio.isFinite, imageAspectRatio > 0 else {
+            return AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.3)
+        }
+        let start = clamped(start, to: pageSize)
+        let end = clamped(end, to: pageSize)
+        let deltaX = abs(end.x - start.x)
+        let deltaY = abs(end.y - start.y)
+        guard hypot(deltaX, deltaY) >= placementTapThreshold,
+              deltaX >= max(4, pageSize.width * 0.01),
+              deltaY >= max(4, pageSize.height * 0.01) else {
+            return defaultPlacement(at: end, imageAspectRatio: imageAspectRatio, pageSize: pageSize)
+        }
+
+        let width = min(deltaX, deltaY * imageAspectRatio)
+        let height = width / imageAspectRatio
+        guard width >= max(4, pageSize.width * 0.01),
+              height >= max(4, pageSize.height * 0.01) else {
+            return defaultPlacement(at: end, imageAspectRatio: imageAspectRatio, pageSize: pageSize)
+        }
+        let horizontalDirection: CGFloat = end.x >= start.x ? 1 : -1
+        let verticalDirection: CGFloat = end.y >= start.y ? 1 : -1
+        let opposite = CGPoint(
+            x: start.x + horizontalDirection * width,
+            y: start.y + verticalDirection * height
+        )
+        return normalizedRect(
+            center: CGPoint(x: (start.x + opposite.x) / 2, y: (start.y + opposite.y) / 2),
+            size: CGSize(width: width, height: height),
+            pageSize: pageSize
+        )
+    }
+
+    static func defaultPlacement(
+        at location: CGPoint,
+        imageAspectRatio: Double,
+        pageSize: CGSize
+    ) -> AnnotationTransform {
+        guard pageSize.width > 0, pageSize.height > 0, imageAspectRatio.isFinite, imageAspectRatio > 0 else {
+            return AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.3)
+        }
+        let aspectRatio = CGFloat(imageAspectRatio)
+        let maximumWidth = pageSize.width * 0.42
+        let maximumHeight = pageSize.height * 0.42
+        var width = min(maximumWidth, maximumHeight * aspectRatio)
+        var height = width / aspectRatio
+        if width < pageSize.width * 0.01 {
+            width = pageSize.width * 0.01
+            height = width / aspectRatio
+        }
+        if height < pageSize.height * 0.01 {
+            height = pageSize.height * 0.01
+            width = height * aspectRatio
+        }
+        if width > pageSize.width {
+            width = pageSize.width
+            height = width / aspectRatio
+        }
+        if height > pageSize.height {
+            height = pageSize.height
+            width = height * aspectRatio
+        }
+        let halfWidth = width / 2
+        let halfHeight = height / 2
+        let center = CGPoint(
+            x: min(max(location.x, halfWidth), pageSize.width - halfWidth),
+            y: min(max(location.y, halfHeight), pageSize.height - halfHeight)
+        )
+        return normalizedRect(center: center, size: CGSize(width: width, height: height), pageSize: pageSize)
+    }
+
+    static func resized(
+        from start: AnnotationTransform,
+        corner: ImageResizeCorner,
+        location: CGPoint,
+        pageSize: CGSize
+    ) -> AnnotationTransform {
+        guard pageSize.width > 0, pageSize.height > 0 else { return start }
+        let width = start.width * pageSize.width
+        let height = start.height * pageSize.height
+        let diagonal = CGPoint(
+            x: corner.horizontalSign * width,
+            y: corner.verticalSign * height
+        )
+        let radians = start.rotation * .pi / 180
+        let anchorOffset = rotate(CGPoint(x: -diagonal.x / 2, y: -diagonal.y / 2), radians: radians)
+        let center = CGPoint(x: start.centerX * pageSize.width, y: start.centerY * pageSize.height)
+        let anchor = CGPoint(x: center.x + anchorOffset.x, y: center.y + anchorOffset.y)
+        let pointer = CGPoint(x: location.x - anchor.x, y: location.y - anchor.y)
+        let localPointer = rotate(pointer, radians: -radians)
+        let denominator = diagonal.x * diagonal.x + diagonal.y * diagonal.y
+        guard denominator > 0 else { return start }
+        var scale = (localPointer.x * diagonal.x + localPointer.y * diagonal.y) / denominator
+        let minimumScale = max(28 / width, 28 / height, 0.01 / start.width, 0.01 / start.height)
+        let unscaledCenterOffset = rotate(
+            CGPoint(x: diagonal.x / 2, y: diagonal.y / 2),
+            radians: radians
+        )
+        let maximumScale = min(
+            1 / start.width,
+            1 / start.height,
+            scaleLimit(anchor: anchor.x, offset: unscaledCenterOffset.x, maximum: pageSize.width),
+            scaleLimit(anchor: anchor.y, offset: unscaledCenterOffset.y, maximum: pageSize.height)
+        )
+        scale = min(max(scale, minimumScale), maximumScale)
+
+        let newWidth = start.width * scale
+        let newHeight = start.height * scale
+        let newDiagonal = CGPoint(
+            x: corner.horizontalSign * newWidth * pageSize.width,
+            y: corner.verticalSign * newHeight * pageSize.height
+        )
+        let centerOffset = rotate(CGPoint(x: newDiagonal.x / 2, y: newDiagonal.y / 2), radians: radians)
+        return AnnotationTransform(
+            centerX: (anchor.x + centerOffset.x) / pageSize.width,
+            centerY: (anchor.y + centerOffset.y) / pageSize.height,
+            width: newWidth,
+            height: newHeight,
+            rotation: start.rotation
+        )
+    }
+
+    static func rotated(
+        from start: AnnotationTransform,
+        startLocation: CGPoint,
+        location: CGPoint,
+        pageSize: CGSize
+    ) -> AnnotationTransform {
+        let rotated = DocumentAnnotationInteraction.rotated(
+            from: start,
+            startLocation: startLocation,
+            location: location,
+            pageSize: pageSize
+        )
+        return AnnotationTransform(
+            centerX: rotated.centerX,
+            centerY: rotated.centerY,
+            width: rotated.width,
+            height: rotated.height,
+            rotation: snappedRotation(rotated.rotation)
+        )
+    }
+
+    static func snappedRotation(_ rotation: Double) -> Double {
+        let normalized = normalize(rotation)
+        let candidates = [-180.0, -90, 0, 90, 180]
+        guard let closest = candidates.min(by: { abs(normalized - $0) < abs(normalized - $1) }),
+              abs(normalized - closest) <= rotationSnapThreshold else { return normalized }
+        return closest == 180 ? -180 : closest
+    }
+
+    private static func normalizedRect(center: CGPoint, size: CGSize, pageSize: CGSize) -> AnnotationTransform {
+        AnnotationTransform(
+            centerX: min(max(center.x / pageSize.width, 0), 1),
+            centerY: min(max(center.y / pageSize.height, 0), 1),
+            width: min(max(size.width / pageSize.width, 0.01), 1),
+            height: min(max(size.height / pageSize.height, 0.01), 1)
+        )
+    }
+
+    private static func clamped(_ point: CGPoint, to size: CGSize) -> CGPoint {
+        CGPoint(x: min(max(point.x, 0), size.width), y: min(max(point.y, 0), size.height))
+    }
+
+    private static func rotate(_ point: CGPoint, radians: Double) -> CGPoint {
+        CGPoint(
+            x: cos(radians) * point.x - sin(radians) * point.y,
+            y: sin(radians) * point.x + cos(radians) * point.y
+        )
+    }
+
+    private static func scaleLimit(anchor: CGFloat, offset: CGFloat, maximum: CGFloat) -> Double {
+        if offset > 0 {
+            return max(0, (maximum - anchor) / offset)
+        }
+        if offset < 0 {
+            return max(0, -anchor / offset)
+        }
+        return .greatestFiniteMagnitude
+    }
+
+    private static func normalize(_ value: Double) -> Double {
+        var output = value.truncatingRemainder(dividingBy: 360)
+        if output > 180 {
+            output -= 360
+        }
+        if output < -180 {
+            output += 360
+        }
+        return output
+    }
+}
+
 enum DocumentEditorPalette {
     static let textColors = ["#0B1220", "#FFFFFF", "#1F4FEB", "#B91C1C", "#FBBF24"]
     static let strokeColors = ["#0B1220", "#1F4FEB", "#B91C1C", "#FBBF24"]

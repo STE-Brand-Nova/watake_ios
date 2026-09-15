@@ -97,6 +97,42 @@ struct PageAnnotationCompositorTests {
         #expect(right.red > 0.75)
         #expect(right.blue < 0.25)
     }
+
+    @Test("renders image flip state into delivery output")
+    func rendersImageFlipState() async throws {
+        let store = InMemoryAssetStore()
+        let sourceData = SyntheticImage.makePNGData(width: 200, height: 200, red: 1, green: 1, blue: 1)
+        let markerData = SyntheticImage.makeTopBottomPNGData(
+            width: 80,
+            height: 80,
+            topColor: SyntheticColor(red: 1, green: 0, blue: 0),
+            bottomColor: SyntheticColor(red: 0, green: 0, blue: 1)
+        )
+        let marker = SyntheticImage.makeAssetReference(pageId: UUID(), data: markerData)
+        await store.seed(markerData, reference: marker)
+        let annotation = PageAnnotation(
+            id: UUID(),
+            kind: .image,
+            transform: AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.4),
+            zIndex: 0,
+            image: marker,
+            isFlippedVertically: true
+        )
+
+        let result = try await PageAnnotationCompositor(assetStore: store).renderJPEG(
+            sourceData: sourceData,
+            annotations: [annotation],
+            quality: 1
+        )
+        let rendered = try decodeImage(result)
+        let top = try pixel(in: rendered, column: 100, row: 75)
+        let bottom = try pixel(in: rendered, column: 100, row: 125)
+
+        #expect(top.blue > 0.75)
+        #expect(top.red < 0.25)
+        #expect(bottom.red > 0.75)
+        #expect(bottom.blue < 0.25)
+    }
 }
 
 private struct RGBPixel {

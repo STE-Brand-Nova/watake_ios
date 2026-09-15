@@ -1,18 +1,18 @@
 #if canImport(UIKit)
     import DesignSystem
-    import PhotosUI
     import SwiftUI
 
     struct DocumentEditorLayout: View {
         @Bindable var model: DocumentEditorModel
-        @Binding var photoItem: PhotosPickerItem?
         let widthClass: WatakeWidthClass
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
+        let showImageStyle: (UUID) -> Void
         let showHighlightDrawingStyle: () -> Void
         let addText: () -> Void
         let showSignature: () -> Void
+        let addImage: () -> Void
         let showPageTargets: () -> Void
 
         var body: some View {
@@ -29,21 +29,20 @@
                     model: model,
                     editText: editText,
                     showTextStyle: showTextStyle,
-                    showHighlightStyle: showHighlightStyle
+                    showHighlightStyle: showHighlightStyle,
+                    showImageStyle: showImageStyle
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 PageRail(model: model, axis: .horizontal)
                     .frame(height: 92)
                 EditorToolDock(
                     model: model,
-                    photoItem: $photoItem,
                     addText: addText,
                     showSignature: showSignature,
+                    addImage: addImage,
                     showHighlightStyle: showHighlightDrawingStyle
                 )
-                if let annotation = model.selectedAnnotation,
-                   annotation.kind != .text,
-                   annotation.kind != .highlight {
+                if model.selectedAnnotation?.kind == .signature {
                     AnnotationInspector(model: model, editText: editText, showPageTargets: showPageTargets)
                 }
             }
@@ -60,14 +59,15 @@
                         model: model,
                         editText: editText,
                         showTextStyle: showTextStyle,
-                        showHighlightStyle: showHighlightStyle
+                        showHighlightStyle: showHighlightStyle,
+                        showImageStyle: showImageStyle
                     )
                     .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
                     EditorToolDock(
                         model: model,
-                        photoItem: $photoItem,
                         addText: addText,
                         showSignature: showSignature,
+                        addImage: addImage,
                         showHighlightStyle: showHighlightDrawingStyle
                     )
                 }
@@ -84,9 +84,9 @@
 
     private struct EditorToolDock: View {
         @Bindable var model: DocumentEditorModel
-        @Binding var photoItem: PhotosPickerItem?
         let addText: () -> Void
         let showSignature: () -> Void
+        let addImage: () -> Void
         let showHighlightStyle: () -> Void
         @AppStorage("watake.editor.didShowHighlightGuide.v2") private var didShowHighlightGuide = false
         @State private var showsHighlightGuide = false
@@ -103,6 +103,25 @@
                         markGuideShown: { didShowHighlightGuide = true }
                     )
                 }
+                if model.pendingImagePlacement != nil {
+                    HStack(spacing: WatakeSpacing.sm) {
+                        Image(systemName: "hand.draw")
+                            .foregroundStyle(WatakeColor.brand.primary)
+                        Text("Tap to place, or drag to set the image size.")
+                            .watakeType(.caption)
+                            .foregroundStyle(WatakeColor.text.secondary)
+                        Spacer(minLength: WatakeSpacing.xs)
+                        Button("Cancel") { model.cancelImagePlacement() }
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(.horizontal, WatakeSpacing.md)
+                    .padding(.vertical, WatakeSpacing.xs)
+                    .frame(maxWidth: .infinity)
+                    .background(WatakeColor.surface.raised)
+                    .overlay(alignment: .top) { Divider() }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Image placement. Tap the page to place the image, or drag to set its size.")
+                }
                 HStack(spacing: WatakeSpacing.xs) {
                     toolButton(.select, icon: "hand.point.up.left") { model.activateTool(.select) }
                     toolButton(.text, icon: "textformat", action: addText)
@@ -110,19 +129,7 @@
                         model.activateTool(.signature)
                         showSignature()
                     }
-                    PhotosPicker(selection: $photoItem, matching: .images) {
-                        VStack(spacing: WatakeSpacing.xxs) {
-                            Image(systemName: "photo").font(.body)
-                            Text("Image").watakeType(.overline)
-                        }
-                        .foregroundStyle(WatakeColor.text.secondary)
-                        .frame(minWidth: 52, minHeight: 44)
-                        .contentShape(Rectangle())
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Image")
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded { model.activateTool(.image) })
+                    toolButton(.image, icon: "photo", action: addImage)
                     toolButton(.highlight, icon: "highlighter") { model.activateTool(.highlight) }
                 }
                 .padding(.horizontal, WatakeSpacing.sm)
