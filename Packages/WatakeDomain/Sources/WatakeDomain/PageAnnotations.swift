@@ -139,6 +139,8 @@ public struct PageAnnotation: Identifiable, Codable, Equatable, Sendable {
     public let strokes: [InkStroke]
     public let image: AssetReference?
     public let isStraightened: Bool
+    public let isFlippedHorizontally: Bool
+    public let isFlippedVertically: Bool
 
     public init(
         id: UUID,
@@ -149,7 +151,9 @@ public struct PageAnnotation: Identifiable, Codable, Equatable, Sendable {
         text: AnnotationText? = nil,
         strokes: [InkStroke] = [],
         image: AssetReference? = nil,
-        isStraightened: Bool = false
+        isStraightened: Bool = false,
+        isFlippedHorizontally: Bool = false,
+        isFlippedVertically: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -160,6 +164,8 @@ public struct PageAnnotation: Identifiable, Codable, Equatable, Sendable {
         self.strokes = strokes
         self.image = image
         self.isStraightened = isStraightened
+        self.isFlippedHorizontally = isFlippedHorizontally
+        self.isFlippedVertically = isFlippedVertically
     }
 
     public func validate() throws {
@@ -168,16 +174,22 @@ public struct PageAnnotation: Identifiable, Codable, Equatable, Sendable {
         guard zIndex >= 0 else { throw DomainValidationError.annotationZIndexInvalid }
         switch kind {
         case .text:
-            guard let text, strokes.isEmpty, image == nil else { throw DomainValidationError.annotationPayloadInvalid }
+            guard let text, strokes.isEmpty, image == nil, !isFlippedHorizontally, !isFlippedVertically else {
+                throw DomainValidationError.annotationPayloadInvalid
+            }
             try text.validate()
         case .signature:
-            guard text == nil, !strokes.isEmpty, image == nil else { throw DomainValidationError.annotationPayloadInvalid }
+            guard text == nil, !strokes.isEmpty, image == nil, !isFlippedHorizontally, !isFlippedVertically else {
+                throw DomainValidationError.annotationPayloadInvalid
+            }
             try strokes.forEach { try $0.validate() }
         case .image:
             guard text == nil, strokes.isEmpty, let image else { throw DomainValidationError.annotationPayloadInvalid }
             try image.validate()
         case .highlight:
-            guard text == nil, !strokes.isEmpty, image == nil else { throw DomainValidationError.annotationPayloadInvalid }
+            guard text == nil, !strokes.isEmpty, image == nil, !isFlippedHorizontally, !isFlippedVertically else {
+                throw DomainValidationError.annotationPayloadInvalid
+            }
             try strokes.forEach { try $0.validate() }
         }
     }

@@ -3,55 +3,6 @@ import Foundation
 import Observation
 import WatakeDomain
 
-public enum DocumentEditorTool: String, CaseIterable, Identifiable, Sendable {
-    case select
-    case text
-    case signature
-    case image
-    case highlight
-
-    public var id: String {
-        rawValue
-    }
-}
-
-public enum DocumentEditorSaveState: Equatable, Sendable {
-    case idle
-    case saving
-    case savedCopy
-    case failed
-}
-
-private struct PageHistory: Sendable {
-    var undo: [[PageAnnotation]] = []
-    var redo: [[PageAnnotation]] = []
-
-    mutating func record(_ before: [PageAnnotation]) {
-        undo.append(before)
-        if undo.count > 100 {
-            undo.removeFirst(undo.count - 100)
-        }
-        redo.removeAll()
-    }
-
-    mutating func undo(current: [PageAnnotation]) -> [PageAnnotation]? {
-        guard let previous = undo.popLast() else { return nil }
-        redo.append(current)
-        return previous
-    }
-
-    mutating func redo(current: [PageAnnotation]) -> [PageAnnotation]? {
-        guard let next = redo.popLast() else { return nil }
-        undo.append(current)
-        return next
-    }
-}
-
-private struct PageThumbnailCacheEntry: Sendable {
-    let page: DocumentPage
-    let data: Data
-}
-
 @MainActor
 @Observable
 public final class DocumentEditorModel {
@@ -73,6 +24,8 @@ public final class DocumentEditorModel {
     public private(set) var highlightOpacity = 0.42
     public private(set) var highlightWidth = 0.025
     public private(set) var autoStraightenHighlights = true
+    public private(set) var pendingImagePlacement: PendingImagePlacement?
+    public private(set) var isCommittingImagePlacement = false
 
     private let store: any DocumentEditingStore
     private let now: @Sendable () -> Date
@@ -156,6 +109,7 @@ extension DocumentEditorModel {
     public func selectPage(_ pageID: UUID) {
         finishTextHistory()
         guard document.pages.contains(where: { $0.id == pageID }) else { return }
+        pendingImagePlacement = nil
         selectedPageID = pageID
         selectedAnnotationID = nil
         tool = .select
@@ -179,6 +133,7 @@ extension DocumentEditorModel {
             return cached.data
         }
         guard let data = try? await pageThumbnailLoader(page), !Task.isCancelled else { return nil }
+        guard document.pages.first(where: { $0.id == page.id }) == page else { return nil }
         pageThumbnailCache[page.id] = PageThumbnailCacheEntry(page: page, data: data)
         return data
     }
@@ -191,6 +146,9 @@ extension DocumentEditorModel {
     }
 
     public func activateTool(_ tool: DocumentEditorTool) {
+        if tool != .image {
+            pendingImagePlacement = nil
+        }
         selectedAnnotationID = nil
         self.tool = tool
     }
@@ -277,8 +235,123 @@ extension DocumentEditorModel {
         tool = .highlight
     }
 
+    @discardableResult
+    public func prepareImagePlacement(
+        data: Data,
+        mediaType: String,
+        fileExtension: String,
+        aspectRatio: Double
+    ) -> Bool {
+        guard !data.isEmpty, aspectRatio.isFinite, aspectRatio > 0 else { return false }
+        pendingImagePlacement = PendingImagePlacement(
+            id: makeUUID(),
+            data: data,
+            mediaType: mediaType,
+            fileExtension: fileExtension,
+            aspectRatio: min(max(aspectRatio, 0.02), 50)
+        )
+        selectedAnnotationID = nil
+        tool = .image
+        return true
+    }
+
+    public func cancelImagePlacement() {
+        pendingImagePlacement = nil
+        isCommittingImagePlacement = false
+        if tool == .image {
+            tool = .select
+        }
+    }
+
+    public func placePendingImage(transform: AnnotationTransform) async -> Bool {
+        guard let pendingImagePlacement, !isCommittingImagePlacement else { return false }
+        guard (try? transform.validate()) != nil else { return false }
+        let placementPageID = selectedPageID
+        isCommittingImagePlacement = true
+        defer { isCommittingImagePlacement = false }
+        guard let reference = await stageImage(
+            data: pendingImagePlacement.data,
+            mediaType: pendingImagePlacement.mediaType,
+            fileExtension: pendingImagePlacement.fileExtension
+        ) else { return false }
+        guard self.pendingImagePlacement == pendingImagePlacement, selectedPageID == placementPageID else {
+            await discardStagedReference(reference)
+            return false
+        }
+        self.pendingImagePlacement = nil
+        append(PageAnnotation(
+            id: makeUUID(),
+            kind: .image,
+            transform: transform,
+            zIndex: nextZIndex,
+            image: reference
+        ))
+        return true
+    }
+
     public func importImage(data: Data, mediaType: String, fileExtension: String) async -> Bool {
-        guard !data.isEmpty else { return false }
+        guard let reference = await stageImage(data: data, mediaType: mediaType, fileExtension: fileExtension) else {
+            return false
+        }
+        append(PageAnnotation(
+            id: makeUUID(),
+            kind: .image,
+            transform: .init(centerX: 0.5, centerY: 0.5, width: 0.5, height: 0.3),
+            zIndex: nextZIndex,
+            image: reference
+        ))
+        return true
+    }
+
+    public func replaceSelectedImage(data: Data, mediaType: String, fileExtension: String) async -> Bool {
+        guard let selectedAnnotationID,
+              selectedAnnotation?.kind == .image else {
+            return false
+        }
+        let pageID = selectedPageID
+        guard let reference = await stageImage(data: data, mediaType: mediaType, fileExtension: fileExtension) else {
+            return false
+        }
+        guard selectedPageID == pageID,
+              self.selectedAnnotationID == selectedAnnotationID,
+              let page = selectedPage,
+              let index = page.annotations.firstIndex(where: { $0.id == selectedAnnotationID && $0.kind == .image }) else {
+            await discardStagedReference(reference)
+            return false
+        }
+        var annotations = page.annotations
+        let current = annotations[index]
+        annotations[index] = PageAnnotation(
+            id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
+            zIndex: current.zIndex, text: current.text, strokes: current.strokes, image: reference,
+            isStraightened: current.isStraightened,
+            isFlippedHorizontally: current.isFlippedHorizontally,
+            isFlippedVertically: current.isFlippedVertically
+        )
+        setAnnotations(annotations, recording: page.annotations)
+        return true
+    }
+
+    public func rotateSelectedImage(by degrees: Double) {
+        guard selectedAnnotation?.kind == .image else { return }
+        transformSelected(rotationDelta: degrees)
+    }
+
+    public func resetSelectedImageRotation() {
+        guard let annotation = selectedAnnotation, annotation.kind == .image else { return }
+        transformSelected(rotationDelta: -annotation.transform.rotation)
+    }
+
+    public func flipSelectedImageHorizontally() {
+        updateSelectedImageFlips(horizontal: true)
+    }
+
+    public func flipSelectedImageVertically() {
+        updateSelectedImageFlips(horizontal: false)
+    }
+
+    private func stageImage(data: Data, mediaType: String, fileExtension: String) async -> AssetReference? {
+        guard !data.isEmpty else { return nil }
         let assetID = makeUUID()
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let safeExtension = fileExtension.lowercased().filter { $0.isLetter || $0.isNumber }
@@ -295,19 +368,30 @@ extension DocumentEditorModel {
             try await store.stageAnnotationAsset(data, reference: reference)
             stagedAssets.append(reference)
             annotationImages[reference.id] = data
-            let annotation = PageAnnotation(
-                id: makeUUID(),
-                kind: .image,
-                transform: .init(centerX: 0.5, centerY: 0.5, width: 0.5, height: 0.3),
-                zIndex: nextZIndex,
-                image: reference
-            )
-            append(annotation)
-            return true
+            return reference
         } catch {
             errorMessage = "Image could not be added."
-            return false
+            return nil
         }
+    }
+
+    private func updateSelectedImageFlips(horizontal: Bool) {
+        guard selectedAnnotation?.kind == .image else { return }
+        replaceSelected { current in
+            PageAnnotation(
+                id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
+                zIndex: current.zIndex, text: current.text, strokes: current.strokes, image: current.image,
+                isStraightened: current.isStraightened,
+                isFlippedHorizontally: horizontal ? !current.isFlippedHorizontally : current.isFlippedHorizontally,
+                isFlippedVertically: horizontal ? current.isFlippedVertically : !current.isFlippedVertically
+            )
+        }
+    }
+
+    private func discardStagedReference(_ reference: AssetReference) async {
+        stagedAssets.removeAll { $0.id == reference.id }
+        annotationImages.removeValue(forKey: reference.id)
+        await store.discardAnnotationAssets([reference])
     }
 
     public func updateSelectedText(_ value: AnnotationText) {
@@ -320,7 +404,9 @@ extension DocumentEditorModel {
             PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
                 zIndex: current.zIndex, text: value, strokes: current.strokes, image: current.image,
-                isStraightened: current.isStraightened
+                isStraightened: current.isStraightened,
+                isFlippedHorizontally: current.isFlippedHorizontally,
+                isFlippedVertically: current.isFlippedVertically
             )
         }
         textHistoryTask?.cancel()
@@ -342,7 +428,9 @@ extension DocumentEditorModel {
             PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: min(max(value, 0), 1),
                 zIndex: current.zIndex, text: current.text, strokes: current.strokes, image: current.image,
-                isStraightened: current.isStraightened
+                isStraightened: current.isStraightened,
+                isFlippedHorizontally: current.isFlippedHorizontally,
+                isFlippedVertically: current.isFlippedVertically
             )
         }
     }
@@ -359,7 +447,9 @@ extension DocumentEditorModel {
             return PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
                 zIndex: current.zIndex, text: current.text, strokes: strokes, image: current.image,
-                isStraightened: current.isStraightened
+                isStraightened: current.isStraightened,
+                isFlippedHorizontally: current.isFlippedHorizontally,
+                isFlippedVertically: current.isFlippedVertically
             )
         }
     }
@@ -380,8 +470,8 @@ extension DocumentEditorModel {
     ) {
         guard let selectedAnnotation else { return }
         let old = selectedAnnotation.transform
-        let snappedX = snap(centerX ?? old.centerX)
-        let snappedY = snap(centerY ?? old.centerY)
+        let snappedX = centerX.map { selectedAnnotation.kind == .image ? $0 : snap($0) } ?? old.centerX
+        let snappedY = centerY.map { selectedAnnotation.kind == .image ? $0 : snap($0) } ?? old.centerY
         let transformed = AnnotationTransform(
             centerX: min(max(snappedX, 0), 1),
             centerY: min(max(snappedY, 0), 1),
@@ -393,7 +483,9 @@ extension DocumentEditorModel {
             PageAnnotation(
                 id: current.id, kind: current.kind, transform: transformed, opacity: current.opacity,
                 zIndex: current.zIndex, text: current.text, strokes: current.strokes, image: current.image,
-                isStraightened: current.isStraightened
+                isStraightened: current.isStraightened,
+                isFlippedHorizontally: current.isFlippedHorizontally,
+                isFlippedVertically: current.isFlippedVertically
             )
         }
     }
@@ -414,9 +506,9 @@ extension DocumentEditorModel {
               let annotation = page.annotations.first(where: { $0.id == selectedAnnotationID }) else { return }
         setAnnotations(page.annotations.filter { $0.id != selectedAnnotationID }, recording: page.annotations)
         self.selectedAnnotationID = nil
-        if annotation.kind == .text {
+        if annotation.kind == .text || annotation.kind == .image {
             toastRevision += 1
-            toastMessage = "Text deleted"
+            toastMessage = annotation.kind == .text ? "Text deleted" : "Image deleted"
         }
     }
 
@@ -425,11 +517,16 @@ extension DocumentEditorModel {
         let targets = pageIDs ?? [selectedPageID]
         for pageID in targets {
             guard let page = document.pages.first(where: { $0.id == pageID }) else { continue }
+            let duplicateTransform = selectedAnnotation.kind == .image && pageID == selectedPageID
+                ? offsetImageDuplicate(selectedAnnotation.transform)
+                : selectedAnnotation.transform
             let duplicate = PageAnnotation(
-                id: makeUUID(), kind: selectedAnnotation.kind, transform: selectedAnnotation.transform,
+                id: makeUUID(), kind: selectedAnnotation.kind, transform: duplicateTransform,
                 opacity: selectedAnnotation.opacity, zIndex: page.annotations.count,
                 text: selectedAnnotation.text, strokes: selectedAnnotation.strokes, image: selectedAnnotation.image,
-                isStraightened: selectedAnnotation.isStraightened
+                isStraightened: selectedAnnotation.isStraightened,
+                isFlippedHorizontally: selectedAnnotation.isFlippedHorizontally,
+                isFlippedVertically: selectedAnnotation.isFlippedVertically
             )
             setAnnotations(page.annotations + [duplicate], for: pageID, recording: page.annotations)
             if pageID == selectedPageID {
@@ -634,7 +731,9 @@ extension DocumentEditorModel {
         annotations.enumerated().map { index, item in
             PageAnnotation(
                 id: item.id, kind: item.kind, transform: item.transform, opacity: item.opacity, zIndex: index,
-                text: item.text, strokes: item.strokes, image: item.image, isStraightened: item.isStraightened
+                text: item.text, strokes: item.strokes, image: item.image, isStraightened: item.isStraightened,
+                isFlippedHorizontally: item.isFlippedHorizontally,
+                isFlippedVertically: item.isFlippedVertically
             )
         }
     }
@@ -690,6 +789,8 @@ extension DocumentEditorModel {
     }
 
     private func retainImageCaches(for pageID: UUID) {
+        let pageIDs = Set(document.pages.map(\.id))
+        pageThumbnailCache = pageThumbnailCache.filter { pageIDs.contains($0.key) }
         pageImages = pageImages.filter { $0.key == pageID }
         let annotationIDs = Set(
             document.pages.first(where: { $0.id == pageID })?.annotations.compactMap(\.image?.id) ?? []
@@ -707,7 +808,9 @@ extension DocumentEditorModel {
                     PageAnnotation(
                         id: makeUUID(), kind: item.kind, transform: item.transform, opacity: item.opacity,
                         zIndex: item.zIndex, text: item.text, strokes: item.strokes, image: item.image,
-                        isStraightened: item.isStraightened
+                        isStraightened: item.isStraightened,
+                        isFlippedHorizontally: item.isFlippedHorizontally,
+                        isFlippedVertically: item.isFlippedVertically
                     )
                 }
             )
@@ -737,6 +840,16 @@ extension DocumentEditorModel {
 
     private func snap(_ value: Double) -> Double {
         abs(value - 0.5) <= 0.015 ? 0.5 : value
+    }
+
+    private func offsetImageDuplicate(_ transform: AnnotationTransform) -> AnnotationTransform {
+        let offset = 0.03
+        let centerX = transform.centerX <= 1 - offset ? transform.centerX + offset : transform.centerX - offset
+        let centerY = transform.centerY <= 1 - offset ? transform.centerY + offset : transform.centerY - offset
+        return AnnotationTransform(
+            centerX: min(max(centerX, 0), 1), centerY: min(max(centerY, 0), 1),
+            width: transform.width, height: transform.height, rotation: transform.rotation
+        )
     }
 
     private func normalizedRotation(_ value: Double) -> Double {

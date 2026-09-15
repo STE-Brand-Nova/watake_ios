@@ -10,6 +10,7 @@
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
+        let showImageStyle: (UUID) -> Void
         @State private var adjustsHighlight = false
         @GestureState private var movePreview: AnnotationTransform?
         @GestureState private var resizePreview: AnnotationTransform?
@@ -17,6 +18,19 @@
         @GestureState private var scaleRotationPreview: AnnotationTransform?
 
         var body: some View {
+            if annotation.kind == .image {
+                ImageAnnotationLayer(
+                    model: model,
+                    annotation: annotation,
+                    pageSize: pageSize,
+                    showImageStyle: showImageStyle
+                )
+            } else {
+                nonImageLayer
+            }
+        }
+
+        private var nonImageLayer: some View {
             ZStack {
                 if isSelected, annotation.kind == .highlight, movePreview == nil {
                     HighlightSelectionOutline(
@@ -47,7 +61,7 @@
                     } else if annotation.kind == .highlight {
                         HighlightContextToolbar(
                             isAdjusting: $adjustsHighlight,
-                            appearsBelow: highlightAppearsNearPageTop,
+                            appearsBelow: highlightAppearsNearPageTop(displayedTransform, pageSize: pageSize),
                             moveGesture: moveGesture(forceHighlight: true),
                             delete: {
                                 model.selectAnnotation(annotation.id)
@@ -157,11 +171,6 @@
             }
         }
 
-        private var highlightAppearsNearPageTop: Bool {
-            let top = (displayedTransform.centerY - displayedTransform.height / 2) * pageSize.height
-            return top < 56
-        }
-
         private var resizeGesture: some Gesture {
             DragGesture(minimumDistance: 0, coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
                 .updating($resizePreview) { value, preview, _ in
@@ -238,20 +247,17 @@
                     pageShortEdge: min(pageSize.width, pageSize.height)
                 )
             case .image:
-                if let reference = annotation.image, let data = model.annotationImages[reference.id] {
-                    AnnotationImageContent(
-                        id: reference.id,
-                        data: data,
-                        targetSize: pageSize
-                    )
-                }
+                EmptyView()
             }
         }
 
         private func moveGesture(forceHighlight: Bool) -> some Gesture {
             DragGesture(coordinateSpace: .named(DocumentAnnotationInteraction.pageCoordinateSpace))
                 .updating($movePreview) { value, preview, _ in
-                    guard canTransform(forceHighlight: forceHighlight) else { return }
+                    guard annotationCanTransform(
+                        annotation, tool: model.tool, isSelected: isSelected,
+                        forceHighlight: forceHighlight, adjustsHighlight: adjustsHighlight
+                    ) else { return }
                     preview = DocumentAnnotationInteraction.moved(
                         from: annotation.transform,
                         translation: value.translation,
@@ -259,7 +265,10 @@
                     )
                 }
                 .onEnded { value in
-                    guard canTransform(forceHighlight: forceHighlight) else { return }
+                    guard annotationCanTransform(
+                        annotation, tool: model.tool, isSelected: isSelected,
+                        forceHighlight: forceHighlight, adjustsHighlight: adjustsHighlight
+                    ) else { return }
                     let transform = DocumentAnnotationInteraction.moved(
                         from: annotation.transform,
                         translation: value.translation,
@@ -283,7 +292,8 @@
                 .updating($scaleRotationPreview) { value, preview, _ in
                     guard model.tool == .select,
                           annotation.kind != .text,
-                          annotation.kind != .highlight else { return }
+                          annotation.kind != .highlight,
+                          annotation.kind != .image else { return }
                     preview = DocumentAnnotationInteraction.scaledAndRotated(
                         from: annotation.transform,
                         scale: Double(value.first?.magnification ?? 1),
@@ -293,7 +303,8 @@
                 .onEnded { value in
                     guard model.tool == .select,
                           annotation.kind != .text,
-                          annotation.kind != .highlight else { return }
+                          annotation.kind != .highlight,
+                          annotation.kind != .image else { return }
                     let transform = DocumentAnnotationInteraction.scaledAndRotated(
                         from: annotation.transform,
                         scale: Double(value.first?.magnification ?? 1),
@@ -309,13 +320,23 @@
                     }
                 }
         }
+    }
 
-        private func canTransform(forceHighlight: Bool) -> Bool {
-            if annotation.kind == .highlight {
-                return model.tool == .select && isSelected && (forceHighlight || adjustsHighlight)
-            }
-            return model.tool == .select || (model.tool == .text && annotation.kind == .text)
+    private func annotationCanTransform(
+        _ annotation: PageAnnotation,
+        tool: DocumentEditorTool,
+        isSelected: Bool,
+        forceHighlight: Bool,
+        adjustsHighlight: Bool
+    ) -> Bool {
+        if annotation.kind == .highlight {
+            return tool == .select && isSelected && (forceHighlight || adjustsHighlight)
         }
+        return tool == .select || (tool == .text && annotation.kind == .text)
+    }
+
+    private func highlightAppearsNearPageTop(_ transform: AnnotationTransform, pageSize: CGSize) -> Bool {
+        (transform.centerY - transform.height / 2) * pageSize.height < 56
     }
 
     private struct StrokeCanvas: View {
@@ -397,29 +418,6 @@
                 )))
             }
             return result
-        }
-    }
-
-    private struct AnnotationImageContent: View {
-        let id: UUID
-        let data: Data
-        let targetSize: CGSize
-        @State private var image: UIImage?
-        @Environment(\.displayScale) private var displayScale
-
-        var body: some View {
-            Group {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFit()
-                } else {
-                    ProgressView()
-                }
-            }
-            .task(id: id) {
-                guard let source = UIImage(data: data) else { return }
-                let preparedSize = CGSize(width: targetSize.width * displayScale, height: targetSize.height * displayScale)
-                image = await source.byPreparingThumbnail(ofSize: preparedSize) ?? source
-            }
         }
     }
 

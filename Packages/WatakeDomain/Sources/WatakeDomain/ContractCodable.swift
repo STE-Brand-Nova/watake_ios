@@ -558,6 +558,7 @@ extension ExportDraft {
 extension PageAnnotation {
     enum CodingKeys: String, CodingKey {
         case id, kind, transform, opacity, zIndex, text, strokes, image, isStraightened
+        case isFlippedHorizontally, isFlippedVertically
     }
 
     public init(from decoder: Decoder) throws {
@@ -571,7 +572,9 @@ extension PageAnnotation {
             text: container.decodeIfPresent(AnnotationText.self, forKey: .text),
             strokes: container.decodeIfPresent([InkStroke].self, forKey: .strokes) ?? [],
             image: container.decodeIfPresent(AssetReference.self, forKey: .image),
-            isStraightened: container.decodeIfPresent(Bool.self, forKey: .isStraightened) ?? false
+            isStraightened: container.decodeIfPresent(Bool.self, forKey: .isStraightened) ?? false,
+            isFlippedHorizontally: container.decodeIfPresent(Bool.self, forKey: .isFlippedHorizontally) ?? false,
+            isFlippedVertically: container.decodeIfPresent(Bool.self, forKey: .isFlippedVertically) ?? false
         )
         try validate()
     }
@@ -590,6 +593,12 @@ extension PageAnnotation {
         try container.encodeIfPresent(image, forKey: .image)
         if isStraightened {
             try container.encode(true, forKey: .isStraightened)
+        }
+        if isFlippedHorizontally {
+            try container.encode(true, forKey: .isFlippedHorizontally)
+        }
+        if isFlippedVertically {
+            try container.encode(true, forKey: .isFlippedVertically)
         }
     }
 }

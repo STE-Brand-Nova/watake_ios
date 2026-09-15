@@ -83,6 +83,10 @@ public actor PageAnnotationCompositor: PageAnnotationRendering {
         // Stored angles follow SwiftUI's y-down convention: positive is clockwise.
         // Core Graphics bitmap contexts are y-up, so negate for identical output.
         context.rotate(by: -transform.rotation * .pi / 180)
+        context.scaleBy(
+            x: annotation.isFlippedHorizontally ? -1 : 1,
+            y: annotation.isFlippedVertically ? -1 : 1
+        )
         context.setAlpha(annotation.opacity)
         switch annotation.kind {
         case .text:

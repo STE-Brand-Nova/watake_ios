@@ -1,8 +1,6 @@
 #if canImport(UIKit)
     import DesignSystem
-    import PhotosUI
     import SwiftUI
-    import UniformTypeIdentifiers
     import WatakeDomain
 
     public struct DocumentEditorView: View {
@@ -16,8 +14,9 @@
         @State private var showsPageTargets = false
         @State private var showsTextStyle = false
         @State private var showsHighlightStyle = false
-        @State private var showsFileImporter = false
-        @State private var photoItem: PhotosPickerItem?
+        @State private var showsImageStyle = false
+        @State private var imageImportRequest: ImageImportPurpose?
+        @State private var replacesImageAfterStyleDismissal = false
         @State private var textEntry: TextEntryDraft?
 
         public init(
@@ -36,14 +35,15 @@
                     let widthClass = WatakeLayout.widthClass(for: proxy.size.width)
                     DocumentEditorLayout(
                         model: model,
-                        photoItem: $photoItem,
                         widthClass: widthClass,
                         editText: beginEditingText,
                         showTextStyle: showTextStyle,
                         showHighlightStyle: { showHighlightStyle($0) },
+                        showImageStyle: showImageStyle,
                         showHighlightDrawingStyle: { showHighlightStyle(nil) },
                         addText: beginAddingText,
                         showSignature: { showsSignature = true },
+                        addImage: { imageImportRequest = .placement },
                         showPageTargets: { showsPageTargets = true }
                     )
                 }
@@ -53,46 +53,21 @@
                 .toolbar { editorToolbar }
             }
             .task { await model.load() }
-            .onChange(of: photoItem) { _, item in
-                guard let item else { return }
-                Task {
-                    guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-                    let type = item.supportedContentTypes.first
-                    _ = await model.importImage(
-                        data: data,
-                        mediaType: type?.preferredMIMEType ?? "application/octet-stream",
-                        fileExtension: type?.preferredFilenameExtension ?? "img"
-                    )
-                    photoItem = nil
-                }
-            }
-            .fileImporter(
-                isPresented: $showsFileImporter,
-                allowedContentTypes: [.png, .jpeg, .heic],
-                allowsMultipleSelection: false
-            ) { result in
-                guard case .success(let urls) = result, let url = urls.first else { return }
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer {
-                    if accessed {
-                        url.stopAccessingSecurityScopedResource()
-                    }
-                }
-                guard let data = try? Data(contentsOf: url) else { return }
-                let type = UTType(filenameExtension: url.pathExtension)
-                Task {
-                    _ = await model.importImage(
-                        data: data,
-                        mediaType: type?.preferredMIMEType ?? "application/octet-stream",
-                        fileExtension: url.pathExtension
-                    )
-                }
-            }
+            .documentImageImporter(model: model, request: $imageImportRequest)
             .sheet(isPresented: $showsSaveCopy) { SaveCopySheet(model: model) }
             .sheet(isPresented: $showsSignature) { SignatureSheet(model: model) }
             .sheet(isPresented: $showsPageTargets) { PageTargetsSheet(model: model) }
             .sheet(isPresented: $showsTextStyle) { TextStyleSheet(model: model) }
             .sheet(isPresented: $showsHighlightStyle) { HighlightStyleSheet(model: model) }
+            .sheet(isPresented: $showsImageStyle, onDismiss: beginPendingImageReplacement) {
+                ImageStyleSheet(
+                    model: model,
+                    replaceImage: {
+                        replacesImageAfterStyleDismissal = true
+                        showsImageStyle = false
+                    }
+                )
+            }
             .alert("Discard changes?", isPresented: $asksToDiscard) {
                 Button("Keep Editing", role: .cancel) {}
                 Button("Discard", role: .destructive) {
@@ -192,7 +167,7 @@
                             onExportRequested(model.document)
                         } label: { Label("Export PDF", systemImage: "square.and.arrow.up") }
                     }
-                    Button { showsFileImporter = true } label: { Label("Import Image from Files", systemImage: "folder") }
+                    Button { imageImportRequest = .placement } label: { Label("Add Image…", systemImage: "photo") }
                     Divider()
                     Button(role: .destructive) { asksToRevert = true } label: {
                         Label("Revert All Edits", systemImage: "arrow.counterclockwise")
@@ -209,7 +184,7 @@
                         }
                     }
                 }
-                .disabled(model.saveState == .saving)
+                .disabled(model.saveState == .saving || model.pendingImagePlacement != nil)
                 .fontWeight(.semibold)
             }
         }
@@ -237,6 +212,12 @@
             model.activateTool(.text)
             model.selectAnnotation(nil)
             textEntry = TextEntryDraft(annotationID: nil, text: "")
+        }
+
+        private func beginPendingImageReplacement() {
+            guard replacesImageAfterStyleDismissal else { return }
+            replacesImageAfterStyleDismissal = false
+            imageImportRequest = .replacement
         }
 
         private func beginEditingText(_ annotationID: UUID) {
@@ -282,6 +263,11 @@
                 model.selectAnnotation(annotationID)
             }
             showsHighlightStyle = true
+        }
+
+        private func showImageStyle(_ annotationID: UUID) {
+            model.selectAnnotation(annotationID)
+            showsImageStyle = true
         }
     }
 
@@ -347,12 +333,15 @@
                 }
             }
             .task(id: page) {
+                image = nil
                 failed = false
                 guard let data = await model.pageThumbnailData(for: page), let source = UIImage(data: data) else {
                     failed = image == nil
                     return
                 }
-                image = await source.byPreparingThumbnail(ofSize: CGSize(width: 140, height: 156)) ?? source
+                let prepared = await source.byPreparingThumbnail(ofSize: CGSize(width: 140, height: 156)) ?? source
+                guard !Task.isCancelled else { return }
+                image = prepared
             }
         }
     }
@@ -362,6 +351,7 @@
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
+        let showImageStyle: (UUID) -> Void
         @State private var zoomScale = 1.0
         @State private var lastMagnification = 1.0
         @State private var pageImage: UIImage?
@@ -376,14 +366,15 @@
                             image: image,
                             editText: editText,
                             showTextStyle: showTextStyle,
-                            showHighlightStyle: showHighlightStyle
+                            showHighlightStyle: showHighlightStyle,
+                            showImageStyle: showImageStyle
                         )
                         .frame(width: rect.width * zoomScale, height: rect.height * zoomScale)
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .background(WatakeColor.surface.sunken)
                     .scrollIndicators(.hidden)
-                    .scrollDisabled(model.selectedAnnotation?.kind == .highlight)
+                    .scrollDisabled(model.selectedAnnotation?.kind == .highlight || model.pendingImagePlacement != nil)
                     .simultaneousGesture(zoomGesture)
                     .overlay(alignment: .bottomTrailing) { zoomControls }
                 } else {
@@ -402,7 +393,7 @@
         private var zoomGesture: some Gesture {
             MagnifyGesture()
                 .onChanged { value in
-                    guard model.selectedAnnotationID == nil else { return }
+                    guard model.selectedAnnotationID == nil, model.pendingImagePlacement == nil else { return }
                     let increment = value.magnification / lastMagnification
                     zoomScale = min(max(zoomScale * increment, 1), 4)
                     lastMagnification = value.magnification
@@ -445,6 +436,7 @@
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
+        let showImageStyle: (UUID) -> Void
         @State private var highlightPoints: [InkPoint] = []
         @State private var highlightLockAxis: HighlightLockAxis?
 
@@ -465,7 +457,8 @@
                             pageSize: proxy.size,
                             editText: editText,
                             showTextStyle: showTextStyle,
-                            showHighlightStyle: showHighlightStyle
+                            showHighlightStyle: showHighlightStyle,
+                            showImageStyle: showImageStyle
                         )
                     }
                     alignmentGuides(size: proxy.size)
@@ -478,6 +471,9 @@
                         )
                         .contentShape(Rectangle())
                         .gesture(highlightGesture(size: proxy.size))
+                    }
+                    if model.pendingImagePlacement != nil {
+                        ImagePlacementOverlay(model: model, pageSize: proxy.size)
                     }
                 }
                 .clipped()
@@ -592,6 +588,18 @@
                                 .font(.title2)
                                 .foregroundStyle(WatakeColor.brand.primary)
                             Text("Use the controls beside the selected highlight to move, delete, or change its style.")
+                                .watakeType(.body)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(WatakeSpacing.md)
+                    } else if annotation.kind == .image {
+                        VStack(spacing: WatakeSpacing.sm) {
+                            Image(systemName: "photo")
+                                .font(.title2)
+                                .foregroundStyle(WatakeColor.brand.primary)
+                            Text("Use the controls beside the selected image to move, resize, rotate, duplicate, or open more options.")
                                 .watakeType(.body)
                                 .foregroundStyle(WatakeColor.text.secondary)
                                 .multilineTextAlignment(.center)

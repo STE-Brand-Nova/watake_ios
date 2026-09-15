@@ -30,6 +30,29 @@ struct PageAnnotationContractTests {
         #expect(decoded.annotations.isEmpty)
     }
 
+    @Test func legacyImageAnnotationWithoutFlipFieldsDefaultsToUnflipped() throws {
+        let image = asset()
+        let annotation = PageAnnotation(
+            id: UUID(), kind: .image,
+            transform: .init(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.3),
+            zIndex: 0, image: image,
+            isFlippedHorizontally: true,
+            isFlippedVertically: true
+        )
+        let encoded = try WatakeContractCoding.makeJSONEncoder().encode(annotation)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["isFlippedHorizontally"] as? Bool == true)
+        #expect(object["isFlippedVertically"] as? Bool == true)
+        object.removeValue(forKey: "isFlippedHorizontally")
+        object.removeValue(forKey: "isFlippedVertically")
+
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try WatakeContractCoding.makeJSONDecoder().decode(PageAnnotation.self, from: legacy)
+
+        #expect(!decoded.isFlippedHorizontally)
+        #expect(!decoded.isFlippedVertically)
+    }
+
     @Test func duplicateLayerIdentityFailsValidation() {
         let id = UUID()
         let page = DocumentPage(
