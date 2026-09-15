@@ -47,6 +47,11 @@ private struct PageHistory: Sendable {
     }
 }
 
+private struct PageThumbnailCacheEntry: Sendable {
+    let page: DocumentPage
+    let data: Data
+}
+
 @MainActor
 @Observable
 public final class DocumentEditorModel {
@@ -64,10 +69,15 @@ public final class DocumentEditorModel {
     public private(set) var errorMessage: String?
     public private(set) var toastMessage: String?
     public private(set) var toastRevision = 0
+    public private(set) var highlightColorHex = "#FBBF24"
+    public private(set) var highlightOpacity = 0.42
+    public private(set) var highlightWidth = 0.025
+    public private(set) var autoStraightenHighlights = true
 
     private let store: any DocumentEditingStore
     private let now: @Sendable () -> Date
     private let makeUUID: @Sendable () -> UUID
+    private let pageThumbnailLoader: @MainActor @Sendable (DocumentPage) async throws -> Data
     private let onPersisted: @MainActor @Sendable (StoredDocument, Bool) -> Void
     private var baseline: StoredDocument
     private var histories: [UUID: PageHistory] = [:]
@@ -77,12 +87,14 @@ public final class DocumentEditorModel {
     private var textHistoryTask: Task<Void, Never>?
     private var textHistoryBaseline: [PageAnnotation]?
     private var textHistoryPageID: UUID?
+    private var pageThumbnailCache: [UUID: PageThumbnailCacheEntry] = [:]
 
     public init(
         document: StoredDocument,
         store: any DocumentEditingStore,
         now: @escaping @Sendable () -> Date = Date.init,
         makeUUID: @escaping @Sendable () -> UUID = UUID.init,
+        pageThumbnailLoader: (@MainActor @Sendable (DocumentPage) async throws -> Data)? = nil,
         onPersisted: @escaping @MainActor @Sendable (StoredDocument, Bool) -> Void = { _, _ in }
     ) {
         self.document = document
@@ -92,6 +104,9 @@ public final class DocumentEditorModel {
         self.store = store
         self.now = now
         self.makeUUID = makeUUID
+        self.pageThumbnailLoader = pageThumbnailLoader ?? { page in
+            try await store.readAsset(page.rectified ?? page.source)
+        }
         self.onPersisted = onPersisted
     }
 }
@@ -143,6 +158,7 @@ extension DocumentEditorModel {
         guard document.pages.contains(where: { $0.id == pageID }) else { return }
         selectedPageID = pageID
         selectedAnnotationID = nil
+        tool = .select
         continuousBaseline = nil
         retainImageCaches(for: pageID)
         Task { await loadImagesForSelectedPage() }
@@ -158,9 +174,13 @@ extension DocumentEditorModel {
         }
     }
 
-    public func pageImageData(for pageID: UUID) async -> Data? {
-        guard let page = document.pages.first(where: { $0.id == pageID }) else { return nil }
-        return try? await store.readAsset(page.rectified ?? page.source)
+    public func pageThumbnailData(for page: DocumentPage) async -> Data? {
+        if let cached = pageThumbnailCache[page.id], cached.page == page {
+            return cached.data
+        }
+        guard let data = try? await pageThumbnailLoader(page), !Task.isCancelled else { return nil }
+        pageThumbnailCache[page.id] = PageThumbnailCacheEntry(page: page, data: data)
+        return data
     }
 
     public func selectAnnotation(_ annotationID: UUID?) {
@@ -171,10 +191,25 @@ extension DocumentEditorModel {
     }
 
     public func activateTool(_ tool: DocumentEditorTool) {
-        if tool != .text, selectedAnnotation?.kind == .text {
-            selectedAnnotationID = nil
-        }
+        selectedAnnotationID = nil
         self.tool = tool
+    }
+
+    public func setHighlightDrawingColor(_ colorHex: String) {
+        guard DocumentEditorPalette.highlightColors.contains(colorHex) else { return }
+        highlightColorHex = colorHex
+    }
+
+    public func setHighlightDrawingStyle(width: Double, colorHex: String, opacity: Double) {
+        highlightWidth = DocumentEditorPalette.clampedHighlightWidth(width)
+        if DocumentEditorPalette.highlightColors.contains(colorHex) {
+            highlightColorHex = colorHex
+        }
+        highlightOpacity = min(max(opacity, 0), 1)
+    }
+
+    public func setHighlightAutoStraighten(_ enabled: Bool) {
+        autoStraightenHighlights = enabled
     }
 }
 
@@ -222,23 +257,24 @@ extension DocumentEditorModel {
         }
     }
 
-    public func addHighlight(points: [InkPoint], straightened: Bool) {
-        guard points.count >= 2 else { return }
-        let finalPoints: [InkPoint] = if straightened, let first = points.first, let last = points.last {
-            [first, last]
-        } else {
-            points
-        }
-        let stroke = InkStroke(points: finalPoints, width: 0.025, colorHex: "#FBBF24", opacity: 0.42)
+    public func addHighlight(points: [InkPoint], pageSize: CGSize, straightened: Bool) {
+        guard let prepared = DocumentHighlightInteraction.prepare(
+            points: points,
+            pageSize: pageSize,
+            width: highlightWidth,
+            colorHex: highlightColorHex,
+            opacity: highlightOpacity
+        ) else { return }
         let annotation = PageAnnotation(
             id: makeUUID(),
             kind: .highlight,
-            transform: .init(centerX: 0.5, centerY: 0.5, width: 1, height: 1),
+            transform: prepared.transform,
             zIndex: nextZIndex,
-            strokes: [stroke],
+            strokes: [prepared.stroke],
             isStraightened: straightened
         )
-        append(annotation)
+        append(annotation, selectsAnnotation: false)
+        tool = .highlight
     }
 
     public func importImage(data: Data, mediaType: String, fileExtension: String) async -> Bool {
@@ -302,7 +338,7 @@ extension DocumentEditorModel {
     }
 
     public func updateSelectedOpacity(_ value: Double) {
-        replaceSelected { current in
+        replaceSelected(recordHistory: continuousBaseline == nil) { current in
             PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: min(max(value, 0), 1),
                 zIndex: current.zIndex, text: current.text, strokes: current.strokes, image: current.image,
@@ -312,9 +348,13 @@ extension DocumentEditorModel {
     }
 
     public func updateSelectedStrokeStyle(width: Double, colorHex: String, opacity: Double) {
-        replaceSelected { current in
+        let clampedWidth = selectedAnnotation?.kind == .highlight
+            ? DocumentEditorPalette.clampedHighlightWidth(width)
+            : min(max(width, 0.002), 0.08)
+        let clampedOpacity = min(max(opacity, 0), 1)
+        replaceSelected(recordHistory: continuousBaseline == nil) { current in
             let strokes = current.strokes.map {
-                InkStroke(points: $0.points, width: width, colorHex: colorHex, opacity: opacity)
+                InkStroke(points: $0.points, width: clampedWidth, colorHex: colorHex, opacity: clampedOpacity)
             }
             return PageAnnotation(
                 id: current.id, kind: current.kind, transform: current.transform, opacity: current.opacity,
@@ -325,7 +365,9 @@ extension DocumentEditorModel {
     }
 
     public func beginContinuousEdit() {
-        continuousBaseline = selectedPage?.annotations
+        if continuousBaseline == nil {
+            continuousBaseline = selectedPage?.annotations
+        }
     }
 
     public func transformSelected(
@@ -357,8 +399,9 @@ extension DocumentEditorModel {
     }
 
     public func endContinuousEdit() {
-        guard let before = continuousBaseline, let current = selectedPage?.annotations else { return }
+        guard let before = continuousBaseline else { return }
         continuousBaseline = nil
+        guard let current = selectedPage?.annotations else { return }
         guard before != current else { return }
         histories[selectedPageID, default: PageHistory()].record(before)
         changed()
@@ -535,11 +578,19 @@ extension DocumentEditorModel {
         (selectedPage?.annotations.map(\.zIndex).max() ?? -1) + 1
     }
 
-    private func append(_ annotation: PageAnnotation) {
+    private func append(_ annotation: PageAnnotation, selectsAnnotation: Bool = true) {
         guard let page = selectedPage else { return }
+        guard (try? annotation.validate()) != nil else {
+            errorMessage = "This \(annotation.kind.rawValue) could not be added."
+            return
+        }
         setAnnotations(page.annotations + [annotation], recording: page.annotations)
-        selectedAnnotationID = annotation.id
-        tool = annotation.kind == .text ? .text : .select
+        if selectsAnnotation {
+            selectedAnnotationID = annotation.id
+            tool = annotation.kind == .text ? .text : .select
+        } else {
+            selectedAnnotationID = nil
+        }
     }
 
     private func replaceSelected(recordHistory: Bool = true, _ transform: (PageAnnotation) -> PageAnnotation) {

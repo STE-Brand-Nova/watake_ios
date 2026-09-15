@@ -15,6 +15,7 @@
         @State private var showsSignature = false
         @State private var showsPageTargets = false
         @State private var showsTextStyle = false
+        @State private var showsHighlightStyle = false
         @State private var showsFileImporter = false
         @State private var photoItem: PhotosPickerItem?
         @State private var textEntry: TextEntryDraft?
@@ -33,7 +34,18 @@
             NavigationStack {
                 GeometryReader { proxy in
                     let widthClass = WatakeLayout.widthClass(for: proxy.size.width)
-                    editor(widthClass: widthClass)
+                    DocumentEditorLayout(
+                        model: model,
+                        photoItem: $photoItem,
+                        widthClass: widthClass,
+                        editText: beginEditingText,
+                        showTextStyle: showTextStyle,
+                        showHighlightStyle: { showHighlightStyle($0) },
+                        showHighlightDrawingStyle: { showHighlightStyle(nil) },
+                        addText: beginAddingText,
+                        showSignature: { showsSignature = true },
+                        showPageTargets: { showsPageTargets = true }
+                    )
                 }
                 .background(WatakeColor.surface.base)
                 .navigationTitle("Edit Document")
@@ -80,6 +92,7 @@
             .sheet(isPresented: $showsSignature) { SignatureSheet(model: model) }
             .sheet(isPresented: $showsPageTargets) { PageTargetsSheet(model: model) }
             .sheet(isPresented: $showsTextStyle) { TextStyleSheet(model: model) }
+            .sheet(isPresented: $showsHighlightStyle) { HighlightStyleSheet(model: model) }
             .alert("Discard changes?", isPresented: $asksToDiscard) {
                 Button("Keep Editing", role: .cancel) {}
                 Button("Discard", role: .destructive) {
@@ -201,59 +214,6 @@
             }
         }
 
-        @ViewBuilder
-        private func editor(widthClass: WatakeWidthClass) -> some View {
-            if widthClass == .compact {
-                VStack(spacing: 0) {
-                    DocumentCanvas(model: model, editText: beginEditingText, showTextStyle: showTextStyle)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    PageRail(model: model, axis: .horizontal)
-                        .frame(height: 92)
-                    ToolDock(
-                        model: model,
-                        photoItem: $photoItem,
-                        addText: beginAddingText,
-                        showSignature: { showsSignature = true }
-                    )
-                    if let annotation = model.selectedAnnotation, annotation.kind != .text {
-                        AnnotationInspector(
-                            model: model,
-                            editText: beginEditingText,
-                            showPageTargets: { showsPageTargets = true }
-                        )
-                    }
-                }
-            } else {
-                HStack(spacing: 0) {
-                    PageRail(model: model, axis: .vertical)
-                        .frame(width: 112)
-                        .background(WatakeColor.surface.raised)
-                    Divider()
-                    VStack(spacing: 0) {
-                        DocumentCanvas(model: model, editText: beginEditingText, showTextStyle: showTextStyle)
-                            .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-                        ToolDock(
-                            model: model,
-                            photoItem: $photoItem,
-                            addText: beginAddingText,
-                            showSignature: { showsSignature = true }
-                        )
-                    }
-                    Divider()
-                    ScrollView {
-                        AnnotationInspector(
-                            model: model,
-                            editText: beginEditingText,
-                            showPageTargets: { showsPageTargets = true }
-                        )
-                        .padding(WatakeSpacing.md)
-                    }
-                    .frame(width: min(max(320, 340), 380))
-                    .background(WatakeColor.surface.raised)
-                }
-            }
-        }
-
         private var pageCounter: some View {
             Text("Page \((model.selectedPage?.index ?? 0) + 1) of \(model.pages.count)")
                 .watakeType(.caption)
@@ -316,6 +276,13 @@
             model.selectAnnotation(annotationID)
             showsTextStyle = true
         }
+
+        private func showHighlightStyle(_ annotationID: UUID?) {
+            if let annotationID {
+                model.selectAnnotation(annotationID)
+            }
+            showsHighlightStyle = true
+        }
     }
 
     private struct TextEntryDraft: Identifiable {
@@ -324,60 +291,7 @@
         let text: String
     }
 
-    private struct ToolDock: View {
-        @Bindable var model: DocumentEditorModel
-        @Binding var photoItem: PhotosPickerItem?
-        let addText: () -> Void
-        let showSignature: () -> Void
-
-        var body: some View {
-            HStack(spacing: WatakeSpacing.xs) {
-                toolButton(.select, icon: "arrow.up.left.and.arrow.down.right") { model.activateTool(.select) }
-                toolButton(.text, icon: "textformat", action: addText)
-                toolButton(.signature, icon: "signature") {
-                    model.activateTool(.signature)
-                    showSignature()
-                }
-                PhotosPicker(selection: $photoItem, matching: .images) {
-                    VStack(spacing: WatakeSpacing.xxs) {
-                        Image(systemName: "photo").font(.body)
-                        Text("Image").watakeType(.overline)
-                    }
-                    .foregroundStyle(WatakeColor.text.secondary)
-                    .frame(minWidth: 52, minHeight: 44)
-                    .contentShape(Rectangle())
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Image")
-                }
-                .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { model.activateTool(.image) })
-                toolButton(.highlight, icon: "highlighter") { model.activateTool(.highlight) }
-            }
-            .padding(.horizontal, WatakeSpacing.sm)
-            .padding(.vertical, WatakeSpacing.xs)
-            .frame(maxWidth: .infinity)
-            .background(WatakeColor.surface.raised)
-            .overlay(alignment: .top) { Divider() }
-        }
-
-        private func toolButton(_ tool: DocumentEditorTool, icon: String, action: @escaping () -> Void) -> some View {
-            Button(action: action) { toolLabel(tool, icon: icon) }.buttonStyle(.plain)
-        }
-
-        private func toolLabel(_ tool: DocumentEditorTool, icon: String) -> some View {
-            VStack(spacing: WatakeSpacing.xxs) {
-                Image(systemName: icon).font(.body)
-                Text(tool.rawValue.capitalized).watakeType(.overline)
-            }
-            .foregroundStyle(model.tool == tool ? WatakeColor.brand.primary : WatakeColor.text.secondary)
-            .frame(minWidth: 52, minHeight: 44)
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(tool.rawValue.capitalized)
-        }
-    }
-
-    private struct PageRail: View {
+    struct PageRail: View {
         @Bindable var model: DocumentEditorModel
         let axis: Axis
 
@@ -432,11 +346,10 @@
                     Rectangle().fill(WatakeColor.surface.sunken).overlay { ProgressView() }
                 }
             }
-            .task(id: page.id) {
-                image = nil
+            .task(id: page) {
                 failed = false
-                guard let data = await model.pageImageData(for: page.id), let source = UIImage(data: data) else {
-                    failed = true
+                guard let data = await model.pageThumbnailData(for: page), let source = UIImage(data: data) else {
+                    failed = image == nil
                     return
                 }
                 image = await source.byPreparingThumbnail(ofSize: CGSize(width: 140, height: 156)) ?? source
@@ -444,10 +357,11 @@
         }
     }
 
-    private struct DocumentCanvas: View {
+    struct DocumentCanvas: View {
         @Bindable var model: DocumentEditorModel
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
+        let showHighlightStyle: (UUID) -> Void
         @State private var zoomScale = 1.0
         @State private var lastMagnification = 1.0
         @State private var pageImage: UIImage?
@@ -457,12 +371,19 @@
                 if model.selectedPage != nil, let image = pageImage {
                     let rect = fittedRect(imageSize: image.size, container: proxy.size)
                     ScrollView([.horizontal, .vertical]) {
-                        PageSurface(model: model, image: image, editText: editText, showTextStyle: showTextStyle)
-                            .frame(width: rect.width * zoomScale, height: rect.height * zoomScale)
-                            .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
+                        PageSurface(
+                            model: model,
+                            image: image,
+                            editText: editText,
+                            showTextStyle: showTextStyle,
+                            showHighlightStyle: showHighlightStyle
+                        )
+                        .frame(width: rect.width * zoomScale, height: rect.height * zoomScale)
+                        .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .background(WatakeColor.surface.sunken)
                     .scrollIndicators(.hidden)
+                    .scrollDisabled(model.selectedAnnotation?.kind == .highlight)
                     .simultaneousGesture(zoomGesture)
                     .overlay(alignment: .bottomTrailing) { zoomControls }
                 } else {
@@ -523,9 +444,9 @@
         let image: UIImage
         let editText: (UUID) -> Void
         let showTextStyle: (UUID) -> Void
+        let showHighlightStyle: (UUID) -> Void
         @State private var highlightPoints: [InkPoint] = []
-        @State private var highlightStartedAt: Date?
-        @State private var highlightLastMovedAt: Date?
+        @State private var highlightLockAxis: HighlightLockAxis?
 
         var body: some View {
             GeometryReader { proxy in
@@ -543,14 +464,20 @@
                             annotation: annotation,
                             pageSize: proxy.size,
                             editText: editText,
-                            showTextStyle: showTextStyle
+                            showTextStyle: showTextStyle,
+                            showHighlightStyle: showHighlightStyle
                         )
                     }
                     alignmentGuides(size: proxy.size)
                     if model.tool == .highlight {
-                        HighlightCapture(points: $highlightPoints)
-                            .contentShape(Rectangle())
-                            .gesture(highlightGesture(size: proxy.size))
+                        HighlightCapture(
+                            points: displayedHighlightPoints,
+                            colorHex: model.highlightColorHex,
+                            opacity: model.highlightOpacity,
+                            width: model.highlightWidth
+                        )
+                        .contentShape(Rectangle())
+                        .gesture(highlightGesture(size: proxy.size))
                     }
                 }
                 .clipped()
@@ -584,35 +511,50 @@
         private func highlightGesture(size: CGSize) -> some Gesture {
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let timestamp = Date()
-                    if highlightStartedAt == nil {
-                        highlightStartedAt = timestamp
-                        highlightLastMovedAt = timestamp
-                    }
                     let next = InkPoint(location: .init(
                         x: min(max(value.location.x / size.width, 0), 1),
                         y: min(max(value.location.y / size.height, 0), 1)
                     ))
-                    if let previous = highlightPoints.last {
-                        let distance = hypot(next.location.x - previous.location.x, next.location.y - previous.location.y)
-                        if distance > 0.005 {
-                            highlightLastMovedAt = timestamp
-                        }
+                    if let first = highlightPoints.first,
+                       model.autoStraightenHighlights,
+                       highlightLockAxis == nil,
+                       hypot(next.location.x - first.location.x, next.location.y - first.location.y) >= 0.008 {
+                        highlightLockAxis = DocumentHighlightInteraction.lockAxis(from: first, to: next)
                     }
-                    highlightPoints.append(next)
+                    if let previous = highlightPoints.last,
+                       hypot(next.location.x - previous.location.x, next.location.y - previous.location.y) < 0.001 {
+                        return
+                    }
+                    DocumentHighlightInteraction.appendCapturedPoint(next, to: &highlightPoints)
                 }
                 .onEnded { _ in
-                    let straightened = Date().timeIntervalSince(highlightLastMovedAt ?? Date()) >= 0.35
-                    model.addHighlight(points: highlightPoints, straightened: straightened)
+                    if model.autoStraightenHighlights,
+                       highlightLockAxis == nil,
+                       let first = highlightPoints.first,
+                       let last = highlightPoints.last {
+                        highlightLockAxis = DocumentHighlightInteraction.lockAxis(from: first, to: last)
+                    }
+                    model.addHighlight(
+                        points: displayedHighlightPoints,
+                        pageSize: size,
+                        straightened: model.autoStraightenHighlights
+                    )
                     highlightPoints = []
-                    highlightStartedAt = nil
-                    highlightLastMovedAt = nil
+                    highlightLockAxis = nil
                 }
+        }
+
+        private var displayedHighlightPoints: [InkPoint] {
+            DocumentHighlightInteraction.displayedPoints(highlightPoints, axis: highlightLockAxis)
         }
     }
 
     private struct HighlightCapture: View {
-        @Binding var points: [InkPoint]
+        let points: [InkPoint]
+        let colorHex: String
+        let opacity: Double
+        let width: Double
+
         var body: some View {
             Canvas { context, size in
                 guard let first = points.first else { return }
@@ -624,9 +566,9 @@
                 }
                 context.stroke(
                     path,
-                    with: .color(contentColor("#FBBF24").opacity(0.42)),
+                    with: .color(contentColor(colorHex).opacity(opacity)),
                     style: .init(
-                        lineWidth: 0.025 * min(size.width, size.height),
+                        lineWidth: width * min(size.width, size.height),
                         lineCap: .round,
                         lineJoin: .round
                     )
@@ -636,56 +578,73 @@
         }
     }
 
-    private struct AnnotationInspector: View {
+    struct AnnotationInspector: View {
         @Bindable var model: DocumentEditorModel
         let editText: (UUID) -> Void
         let showPageTargets: () -> Void
 
         var body: some View {
-            if let annotation = model.selectedAnnotation {
-                VStack(alignment: .leading, spacing: WatakeSpacing.sm) {
-                    Text(annotation.kind.rawValue.capitalized).watakeType(.title2)
-                    if let text = annotation.text {
-                        textControls(text)
+            Group {
+                if let annotation = model.selectedAnnotation {
+                    if annotation.kind == .highlight {
+                        VStack(spacing: WatakeSpacing.sm) {
+                            Image(systemName: "highlighter")
+                                .font(.title2)
+                                .foregroundStyle(WatakeColor.brand.primary)
+                            Text("Use the controls beside the selected highlight to move, delete, or change its style.")
+                                .watakeType(.body)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(WatakeSpacing.md)
+                    } else {
+                        VStack(alignment: .leading, spacing: WatakeSpacing.sm) {
+                            Text(annotation.kind.rawValue.capitalized).watakeType(.title2)
+                            if let text = annotation.text {
+                                textControls(text)
+                            }
+                            if annotation.kind == .signature {
+                                strokeControls(annotation)
+                            }
+                            VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
+                                Text("Opacity").watakeType(.caption)
+                                Slider(value: Binding(
+                                    get: { model.selectedAnnotation?.opacity ?? 1 },
+                                    set: { model.updateSelectedOpacity($0) }
+                                ), in: 0 ... 1, onEditingChanged: handleContinuousEdit)
+                            }
+                            HStack {
+                                Button { model.sendBackward() } label: { Label("Back", systemImage: "square.2.layers.3d.bottom.filled") }
+                                Button { model.bringForward() } label: { Label("Front", systemImage: "square.2.layers.3d.top.filled") }
+                            }
+                            .buttonStyle(.bordered)
+                            Menu("Duplicate") {
+                                Button("This Page") { model.duplicateSelected() }
+                                Button("Selected Pages…", action: showPageTargets)
+                                Button("All Pages") { model.duplicateSelected(to: Set(model.pages.map(\.id))) }
+                            }
+                            .buttonStyle(.bordered)
+                            Button(role: .destructive) { model.deleteSelected() } label: { Label("Delete Layer", systemImage: "trash") }
+                                .buttonStyle(.bordered)
+                        }
+                        .padding(WatakeSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(WatakeColor.surface.raised)
                     }
-                    if annotation.kind == .signature || annotation.kind == .highlight {
-                        strokeControls(annotation)
+                } else {
+                    VStack(spacing: WatakeSpacing.sm) {
+                        Image(systemName: "hand.tap").font(.title2)
+                        Text("Select a layer to edit its style and position.")
+                            .watakeType(.body)
+                            .foregroundStyle(WatakeColor.text.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
-                        Text("Opacity").watakeType(.caption)
-                        Slider(value: Binding(
-                            get: { model.selectedAnnotation?.opacity ?? 1 },
-                            set: { model.updateSelectedOpacity($0) }
-                        ), in: 0 ... 1)
-                    }
-                    HStack {
-                        Button { model.sendBackward() } label: { Label("Back", systemImage: "square.2.layers.3d.bottom.filled") }
-                        Button { model.bringForward() } label: { Label("Front", systemImage: "square.2.layers.3d.top.filled") }
-                    }
-                    .buttonStyle(.bordered)
-                    Menu("Duplicate") {
-                        Button("This Page") { model.duplicateSelected() }
-                        Button("Selected Pages…", action: showPageTargets)
-                        Button("All Pages") { model.duplicateSelected(to: Set(model.pages.map(\.id))) }
-                    }
-                    .buttonStyle(.bordered)
-                    Button(role: .destructive) { model.deleteSelected() } label: { Label("Delete Layer", systemImage: "trash") }
-                        .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+                    .padding(WatakeSpacing.md)
                 }
-                .padding(WatakeSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(WatakeColor.surface.raised)
-            } else {
-                VStack(spacing: WatakeSpacing.sm) {
-                    Image(systemName: "hand.tap").font(.title2)
-                    Text("Select a layer to edit its style and position.")
-                        .watakeType(.body)
-                        .foregroundStyle(WatakeColor.text.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(WatakeSpacing.md)
             }
+            .onDisappear { model.endContinuousEdit() }
         }
 
         private func textControls(_ text: AnnotationText) -> some View {
@@ -741,7 +700,7 @@
                     set: {
                         model.updateSelectedStrokeStyle(width: $0, colorHex: stroke?.colorHex ?? "#0B1220", opacity: stroke?.opacity ?? 1)
                     }
-                ), in: 0.002 ... 0.08)
+                ), in: 0.002 ... 0.08, onEditingChanged: handleContinuousEdit)
                 colorButtons(current: stroke?.colorHex ?? "#0B1220", colors: DocumentEditorPalette.strokeColors) {
                     model.updateSelectedStrokeStyle(width: stroke?.width ?? 0.02, colorHex: $0, opacity: stroke?.opacity ?? 1)
                 }
@@ -756,7 +715,7 @@
                             .overlay(Circle().stroke(current == hex ? WatakeColor.brand.primary : WatakeColor.border.strong, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(hex == "#FFFFFF" ? "Choose white text color" : "Choose color \(hex)")
+                    .accessibilityLabel("Choose \(DocumentEditorPalette.colorName(for: hex).lowercased()) color")
                 }
             }
         }
@@ -777,6 +736,14 @@
                 isBold: bold ?? current.isBold, isItalic: italic ?? current.isItalic,
                 isUnderlined: underlined ?? current.isUnderlined
             ))
+        }
+
+        private func handleContinuousEdit(_ isEditing: Bool) {
+            if isEditing {
+                model.beginContinuousEdit()
+            } else {
+                model.endContinuousEdit()
+            }
         }
     }
 
