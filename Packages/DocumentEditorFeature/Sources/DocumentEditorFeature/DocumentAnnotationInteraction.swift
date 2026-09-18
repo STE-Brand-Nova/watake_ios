@@ -218,7 +218,8 @@ enum DocumentImageInteraction {
         from start: AnnotationTransform,
         corner: ImageResizeCorner,
         location: CGPoint,
-        pageSize: CGSize
+        pageSize: CGSize,
+        minimumDimension: CGFloat = 28
     ) -> AnnotationTransform {
         guard pageSize.width > 0, pageSize.height > 0 else { return start }
         let width = start.width * pageSize.width
@@ -236,7 +237,12 @@ enum DocumentImageInteraction {
         let denominator = diagonal.x * diagonal.x + diagonal.y * diagonal.y
         guard denominator > 0 else { return start }
         var scale = (localPointer.x * diagonal.x + localPointer.y * diagonal.y) / denominator
-        let minimumScale = max(28 / width, 28 / height, 0.01 / start.width, 0.01 / start.height)
+        let minimumScale = max(
+            minimumDimension / width,
+            minimumDimension / height,
+            0.01 / start.width,
+            0.01 / start.height
+        )
         let unscaledCenterOffset = rotate(
             CGPoint(x: diagonal.x / 2, y: diagonal.y / 2),
             radians: radians
@@ -262,6 +268,35 @@ enum DocumentImageInteraction {
             width: newWidth,
             height: newHeight,
             rotation: start.rotation
+        )
+    }
+
+    static func resized(
+        from start: AnnotationTransform,
+        corner: ImageResizeCorner,
+        translation: CGSize,
+        pageSize: CGSize,
+        minimumDimension: CGFloat = 28
+    ) -> AnnotationTransform {
+        guard pageSize.width > 0, pageSize.height > 0 else { return start }
+        let radians = start.rotation * .pi / 180
+        let offset = rotate(
+            CGPoint(
+                x: corner.horizontalSign * start.width * pageSize.width / 2,
+                y: corner.verticalSign * start.height * pageSize.height / 2
+            ),
+            radians: radians
+        )
+        let cornerPoint = CGPoint(
+            x: start.centerX * pageSize.width + offset.x,
+            y: start.centerY * pageSize.height + offset.y
+        )
+        return resized(
+            from: start,
+            corner: corner,
+            location: CGPoint(x: cornerPoint.x + translation.width, y: cornerPoint.y + translation.height),
+            pageSize: pageSize,
+            minimumDimension: minimumDimension
         )
     }
 
@@ -336,9 +371,16 @@ enum DocumentImageInteraction {
     }
 }
 
+enum SignatureSelectionPolicy {
+    static func usesCompactControls(transform: AnnotationTransform, pageSize: CGSize) -> Bool {
+        min(transform.width * pageSize.width, transform.height * pageSize.height) < 96
+    }
+}
+
 enum DocumentEditorPalette {
     static let textColors = ["#0B1220", "#FFFFFF", "#1F4FEB", "#B91C1C", "#FBBF24"]
     static let strokeColors = ["#0B1220", "#1F4FEB", "#B91C1C", "#FBBF24"]
+    static let signatureColors = ["#0B1220", "#1F4FEB", "#B91C1C", "#FFFFFF"]
     static let highlightColors = ["#FBBF24", "#86EFAC", "#7DD3FC", "#F9A8D4", "#C4B5FD"]
     static let highlightWidthRange = 0.008 ... 0.06
 

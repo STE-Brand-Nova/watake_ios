@@ -9,6 +9,8 @@
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
         let showImageStyle: (UUID) -> Void
+        let showSignatureColor: (UUID) -> Void
+        let showSignatureResize: (UUID) -> Void
         let showHighlightDrawingStyle: () -> Void
         let addText: () -> Void
         let showSignature: () -> Void
@@ -30,7 +32,9 @@
                     editText: editText,
                     showTextStyle: showTextStyle,
                     showHighlightStyle: showHighlightStyle,
-                    showImageStyle: showImageStyle
+                    showImageStyle: showImageStyle,
+                    showSignatureColor: showSignatureColor,
+                    showSignatureResize: showSignatureResize
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 PageRail(model: model, axis: .horizontal)
@@ -42,9 +46,6 @@
                     addImage: addImage,
                     showHighlightStyle: showHighlightDrawingStyle
                 )
-                if model.selectedAnnotation?.kind == .signature {
-                    AnnotationInspector(model: model, editText: editText, showPageTargets: showPageTargets)
-                }
             }
         }
 
@@ -60,7 +61,9 @@
                         editText: editText,
                         showTextStyle: showTextStyle,
                         showHighlightStyle: showHighlightStyle,
-                        showImageStyle: showImageStyle
+                        showImageStyle: showImageStyle,
+                        showSignatureColor: showSignatureColor,
+                        showSignatureResize: showSignatureResize
                     )
                     .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
                     EditorToolDock(
@@ -121,6 +124,25 @@
                     .overlay(alignment: .top) { Divider() }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Image placement. Tap the page to place the image, or drag to set its size.")
+                }
+                if model.pendingSignaturePlacement != nil {
+                    HStack(spacing: WatakeSpacing.sm) {
+                        Image(systemName: "signature")
+                            .foregroundStyle(WatakeColor.brand.primary)
+                        Text("Tap to place, or drag to set the signature size.")
+                            .watakeType(.caption)
+                            .foregroundStyle(WatakeColor.text.secondary)
+                        Spacer(minLength: WatakeSpacing.xs)
+                        Button("Cancel") { model.cancelSignaturePlacement() }
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(.horizontal, WatakeSpacing.md)
+                    .padding(.vertical, WatakeSpacing.xs)
+                    .frame(maxWidth: .infinity)
+                    .background(WatakeColor.surface.raised)
+                    .overlay(alignment: .top) { Divider() }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Signature placement. Tap the page to place it, or drag to set its size.")
                 }
                 HStack(spacing: WatakeSpacing.xs) {
                     toolButton(.select, icon: "hand.point.up.left") { model.activateTool(.select) }

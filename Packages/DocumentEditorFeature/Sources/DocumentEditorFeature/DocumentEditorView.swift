@@ -11,6 +11,8 @@
         @State private var asksToRevert = false
         @State private var showsSaveCopy = false
         @State private var showsSignature = false
+        @State private var showsSignatureColor = false
+        @State private var showsSignatureResize = false
         @State private var showsPageTargets = false
         @State private var showsTextStyle = false
         @State private var showsHighlightStyle = false
@@ -40,6 +42,8 @@
                         showTextStyle: showTextStyle,
                         showHighlightStyle: { showHighlightStyle($0) },
                         showImageStyle: showImageStyle,
+                        showSignatureColor: showSignatureColor,
+                        showSignatureResize: showSignatureResize,
                         showHighlightDrawingStyle: { showHighlightStyle(nil) },
                         addText: beginAddingText,
                         showSignature: { showsSignature = true },
@@ -55,7 +59,9 @@
             .task { await model.load() }
             .documentImageImporter(model: model, request: $imageImportRequest)
             .sheet(isPresented: $showsSaveCopy) { SaveCopySheet(model: model) }
-            .sheet(isPresented: $showsSignature) { SignatureSheet(model: model) }
+            .sheet(isPresented: $showsSignature, onDismiss: finishSignatureSheet) { SignatureSheet(model: model) }
+            .sheet(isPresented: $showsSignatureColor) { SignatureColorSheet(model: model) }
+            .sheet(isPresented: $showsSignatureResize) { SignatureResizeSheet(model: model) }
             .sheet(isPresented: $showsPageTargets) { PageTargetsSheet(model: model) }
             .sheet(isPresented: $showsTextStyle) { TextStyleSheet(model: model) }
             .sheet(isPresented: $showsHighlightStyle) { HighlightStyleSheet(model: model) }
@@ -184,7 +190,11 @@
                         }
                     }
                 }
-                .disabled(model.saveState == .saving || model.pendingImagePlacement != nil)
+                .disabled(
+                    model.saveState == .saving ||
+                        model.pendingImagePlacement != nil ||
+                        model.pendingSignaturePlacement != nil
+                )
                 .fontWeight(.semibold)
             }
         }
@@ -218,6 +228,22 @@
             guard replacesImageAfterStyleDismissal else { return }
             replacesImageAfterStyleDismissal = false
             imageImportRequest = .replacement
+        }
+
+        private func finishSignatureSheet() {
+            if model.tool == .signature, model.pendingSignaturePlacement == nil {
+                model.activateTool(.select)
+            }
+        }
+
+        private func showSignatureColor(_ annotationID: UUID) {
+            model.selectAnnotation(annotationID)
+            showsSignatureColor = true
+        }
+
+        private func showSignatureResize(_ annotationID: UUID) {
+            model.selectAnnotation(annotationID)
+            showsSignatureResize = true
         }
 
         private func beginEditingText(_ annotationID: UUID) {
@@ -352,6 +378,8 @@
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
         let showImageStyle: (UUID) -> Void
+        let showSignatureColor: (UUID) -> Void
+        let showSignatureResize: (UUID) -> Void
         @State private var zoomScale = 1.0
         @State private var lastMagnification = 1.0
         @State private var pageImage: UIImage?
@@ -367,14 +395,20 @@
                             editText: editText,
                             showTextStyle: showTextStyle,
                             showHighlightStyle: showHighlightStyle,
-                            showImageStyle: showImageStyle
+                            showImageStyle: showImageStyle,
+                            showSignatureColor: showSignatureColor,
+                            showSignatureResize: showSignatureResize
                         )
                         .frame(width: rect.width * zoomScale, height: rect.height * zoomScale)
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .background(WatakeColor.surface.sunken)
                     .scrollIndicators(.hidden)
-                    .scrollDisabled(model.selectedAnnotation?.kind == .highlight || model.pendingImagePlacement != nil)
+                    .scrollDisabled(
+                        model.selectedAnnotation?.kind == .highlight ||
+                            model.pendingImagePlacement != nil ||
+                            model.pendingSignaturePlacement != nil
+                    )
                     .simultaneousGesture(zoomGesture)
                     .overlay(alignment: .bottomTrailing) { zoomControls }
                 } else {
@@ -393,7 +427,9 @@
         private var zoomGesture: some Gesture {
             MagnifyGesture()
                 .onChanged { value in
-                    guard model.selectedAnnotationID == nil, model.pendingImagePlacement == nil else { return }
+                    guard model.selectedAnnotationID == nil,
+                          model.pendingImagePlacement == nil,
+                          model.pendingSignaturePlacement == nil else { return }
                     let increment = value.magnification / lastMagnification
                     zoomScale = min(max(zoomScale * increment, 1), 4)
                     lastMagnification = value.magnification
@@ -437,6 +473,8 @@
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
         let showImageStyle: (UUID) -> Void
+        let showSignatureColor: (UUID) -> Void
+        let showSignatureResize: (UUID) -> Void
         @State private var highlightPoints: [InkPoint] = []
         @State private var highlightLockAxis: HighlightLockAxis?
 
@@ -458,7 +496,9 @@
                             editText: editText,
                             showTextStyle: showTextStyle,
                             showHighlightStyle: showHighlightStyle,
-                            showImageStyle: showImageStyle
+                            showImageStyle: showImageStyle,
+                            showSignatureColor: showSignatureColor,
+                            showSignatureResize: showSignatureResize
                         )
                     }
                     alignmentGuides(size: proxy.size)
@@ -474,6 +514,9 @@
                     }
                     if model.pendingImagePlacement != nil {
                         ImagePlacementOverlay(model: model, pageSize: proxy.size)
+                    }
+                    if model.pendingSignaturePlacement != nil {
+                        SignaturePlacementOverlay(model: model, pageSize: proxy.size)
                     }
                 }
                 .clipped()
@@ -600,6 +643,18 @@
                                 .font(.title2)
                                 .foregroundStyle(WatakeColor.brand.primary)
                             Text("Use the controls beside the selected image to move, resize, rotate, duplicate, or open more options.")
+                                .watakeType(.body)
+                                .foregroundStyle(WatakeColor.text.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(WatakeSpacing.md)
+                    } else if annotation.kind == .signature {
+                        VStack(spacing: WatakeSpacing.sm) {
+                            Image(systemName: "signature")
+                                .font(.title2)
+                                .foregroundStyle(WatakeColor.brand.primary)
+                            Text("Use the controls beside the selected signature to move, resize, copy, delete, or change its color.")
                                 .watakeType(.body)
                                 .foregroundStyle(WatakeColor.text.secondary)
                                 .multilineTextAlignment(.center)

@@ -62,6 +62,34 @@ struct PageAnnotationContractTests {
         #expect(throws: DomainValidationError.duplicateAnnotationIDs) { try page.validate() }
     }
 
+    @Test func legacySavedSignatureDefaultsAspectRatio() throws {
+        let timestamp = Date(timeIntervalSince1970: 1000)
+        let signature = SavedSignature(
+            id: UUID(),
+            name: "Legacy",
+            strokes: [InkStroke(
+                points: [
+                    InkPoint(location: NormalizedPoint(x: 0, y: 0)),
+                    InkPoint(location: NormalizedPoint(x: 1, y: 1))
+                ],
+                width: 0.02,
+                colorHex: "#0B1220"
+            )],
+            aspectRatio: 3.2,
+            createdAt: timestamp,
+            updatedAt: timestamp
+        )
+        let encoded = try WatakeContractCoding.makeJSONEncoder().encode(signature)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["aspectRatio"] as? Double == 3.2)
+        object.removeValue(forKey: "aspectRatio")
+
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try WatakeContractCoding.makeJSONDecoder().decode(SavedSignature.self, from: legacy)
+
+        #expect(decoded.aspectRatio == 2.625)
+    }
+
     private func textAnnotation(id: UUID, zIndex: Int) -> PageAnnotation {
         PageAnnotation(
             id: id, kind: .text,

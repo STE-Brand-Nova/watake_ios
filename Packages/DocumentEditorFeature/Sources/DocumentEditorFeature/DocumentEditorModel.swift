@@ -13,23 +13,24 @@ public final class DocumentEditorModel {
     public var tool: DocumentEditorTool = .select
     public private(set) var saveState: DocumentEditorSaveState = .idle
     public private(set) var folders: [Folder] = []
-    public private(set) var signatures: [SavedSignature] = []
+    public internal(set) var signatures: [SavedSignature] = []
     public private(set) var pageImages: [UUID: Data] = [:]
     public private(set) var annotationImages: [UUID: Data] = [:]
     public private(set) var recoveryDraftAvailable = false
-    public private(set) var errorMessage: String?
+    public internal(set) var errorMessage: String?
     public private(set) var toastMessage: String?
     public private(set) var toastRevision = 0
     public private(set) var highlightColorHex = "#FBBF24"
     public private(set) var highlightOpacity = 0.42
     public private(set) var highlightWidth = 0.025
     public private(set) var autoStraightenHighlights = true
-    public private(set) var pendingImagePlacement: PendingImagePlacement?
+    public internal(set) var pendingImagePlacement: PendingImagePlacement?
+    public internal(set) var pendingSignaturePlacement: PendingSignaturePlacement?
     public private(set) var isCommittingImagePlacement = false
 
-    private let store: any DocumentEditingStore
-    private let now: @Sendable () -> Date
-    private let makeUUID: @Sendable () -> UUID
+    let store: any DocumentEditingStore
+    let now: @Sendable () -> Date
+    let makeUUID: @Sendable () -> UUID
     private let pageThumbnailLoader: @MainActor @Sendable (DocumentPage) async throws -> Data
     private let onPersisted: @MainActor @Sendable (StoredDocument, Bool) -> Void
     private var baseline: StoredDocument
@@ -110,6 +111,7 @@ extension DocumentEditorModel {
         finishTextHistory()
         guard document.pages.contains(where: { $0.id == pageID }) else { return }
         pendingImagePlacement = nil
+        pendingSignaturePlacement = nil
         selectedPageID = pageID
         selectedAnnotationID = nil
         tool = .select
@@ -149,6 +151,9 @@ extension DocumentEditorModel {
         if tool != .image {
             pendingImagePlacement = nil
         }
+        if tool != .signature {
+            pendingSignaturePlacement = nil
+        }
         selectedAnnotationID = nil
         self.tool = tool
     }
@@ -184,35 +189,6 @@ extension DocumentEditorModel {
             text: AnnotationText(text: limitedValue)
         )
         append(annotation)
-    }
-
-    public func addSignature(strokes: [InkStroke]) {
-        guard !strokes.isEmpty else { return }
-        let annotation = PageAnnotation(
-            id: makeUUID(),
-            kind: .signature,
-            transform: .init(centerX: 0.5, centerY: 0.72, width: 0.42, height: 0.16),
-            zIndex: nextZIndex,
-            strokes: strokes
-        )
-        append(annotation)
-    }
-
-    public func applySignature(_ signature: SavedSignature) {
-        addSignature(strokes: signature.strokes)
-    }
-
-    public func saveSignature(name: String, strokes: [InkStroke]) async -> Bool {
-        let timestamp = now()
-        let signature = SavedSignature(id: makeUUID(), name: name, strokes: strokes, createdAt: timestamp, updatedAt: timestamp)
-        do {
-            try await store.saveSignature(signature)
-            signatures = try await store.savedSignatures()
-            return true
-        } catch {
-            errorMessage = "Signature could not be saved."
-            return false
-        }
     }
 
     public func addHighlight(points: [InkPoint], pageSize: CGSize, straightened: Bool) {
@@ -470,8 +446,9 @@ extension DocumentEditorModel {
     ) {
         guard let selectedAnnotation else { return }
         let old = selectedAnnotation.transform
-        let snappedX = centerX.map { selectedAnnotation.kind == .image ? $0 : snap($0) } ?? old.centerX
-        let snappedY = centerY.map { selectedAnnotation.kind == .image ? $0 : snap($0) } ?? old.centerY
+        let keepsExactPosition = selectedAnnotation.kind == .image || selectedAnnotation.kind == .signature
+        let snappedX = centerX.map { keepsExactPosition ? $0 : snap($0) } ?? old.centerX
+        let snappedY = centerY.map { keepsExactPosition ? $0 : snap($0) } ?? old.centerY
         let transformed = AnnotationTransform(
             centerX: min(max(snappedX, 0), 1),
             centerY: min(max(snappedY, 0), 1),
@@ -506,9 +483,14 @@ extension DocumentEditorModel {
               let annotation = page.annotations.first(where: { $0.id == selectedAnnotationID }) else { return }
         setAnnotations(page.annotations.filter { $0.id != selectedAnnotationID }, recording: page.annotations)
         self.selectedAnnotationID = nil
-        if annotation.kind == .text || annotation.kind == .image {
+        if annotation.kind == .text || annotation.kind == .image || annotation.kind == .signature {
             toastRevision += 1
-            toastMessage = annotation.kind == .text ? "Text deleted" : "Image deleted"
+            toastMessage = switch annotation.kind {
+            case .text: "Text deleted"
+            case .image: "Image deleted"
+            case .signature: "Signature deleted"
+            case .highlight: nil
+            }
         }
     }
 
@@ -517,8 +499,9 @@ extension DocumentEditorModel {
         let targets = pageIDs ?? [selectedPageID]
         for pageID in targets {
             guard let page = document.pages.first(where: { $0.id == pageID }) else { continue }
-            let duplicateTransform = selectedAnnotation.kind == .image && pageID == selectedPageID
-                ? offsetImageDuplicate(selectedAnnotation.transform)
+            let offsetsDuplicate = selectedAnnotation.kind == .image || selectedAnnotation.kind == .signature
+            let duplicateTransform = offsetsDuplicate && pageID == selectedPageID
+                ? offsetPlacedDuplicate(selectedAnnotation.transform)
                 : selectedAnnotation.transform
             let duplicate = PageAnnotation(
                 id: makeUUID(), kind: selectedAnnotation.kind, transform: duplicateTransform,
@@ -604,7 +587,16 @@ extension DocumentEditorModel {
         saveState = .saving
         do {
             let existing = try await store.documents(in: folderID)
-            let copy = makeCopy(name: trimmedName, folderID: folderID, orderIndex: (existing.map(\.orderIndex).max() ?? -1) + 1)
+            let copy = makeDocumentCopy(
+                from: document,
+                destination: DocumentCopyDestination(
+                    name: trimmedName,
+                    folderID: folderID,
+                    orderIndex: (existing.map(\.orderIndex).max() ?? -1) + 1
+                ),
+                timestamp: now(),
+                makeUUID: makeUUID
+            )
             try await store.saveDocumentCopy(copy, sourceDocumentID: sourceDocumentID)
             try? await store.deleteRecoveryDraft(documentID: sourceDocumentID)
             await store.discardAnnotationAssets(stagedAssets)
@@ -671,11 +663,11 @@ extension DocumentEditorModel {
 }
 
 extension DocumentEditorModel {
-    private var nextZIndex: Int {
+    var nextZIndex: Int {
         (selectedPage?.annotations.map(\.zIndex).max() ?? -1) + 1
     }
 
-    private func append(_ annotation: PageAnnotation, selectsAnnotation: Bool = true) {
+    func append(_ annotation: PageAnnotation, selectsAnnotation: Bool = true) {
         guard let page = selectedPage else { return }
         guard (try? annotation.validate()) != nil else {
             errorMessage = "This \(annotation.kind.rawValue) could not be added."
@@ -690,7 +682,7 @@ extension DocumentEditorModel {
         }
     }
 
-    private func replaceSelected(recordHistory: Bool = true, _ transform: (PageAnnotation) -> PageAnnotation) {
+    func replaceSelected(recordHistory: Bool = true, _ transform: (PageAnnotation) -> PageAnnotation) {
         guard let page = selectedPage, let selectedAnnotationID,
               let index = page.annotations.firstIndex(where: { $0.id == selectedAnnotationID }) else { return }
         var annotations = page.annotations
@@ -796,70 +788,5 @@ extension DocumentEditorModel {
             document.pages.first(where: { $0.id == pageID })?.annotations.compactMap(\.image?.id) ?? []
         )
         annotationImages = annotationImages.filter { annotationIDs.contains($0.key) }
-    }
-
-    private func makeCopy(name: String, folderID: UUID, orderIndex: Int) -> StoredDocument {
-        let timestamp = now()
-        let pages = document.pages.map { page in
-            DocumentPage(
-                id: makeUUID(), index: page.index, originalIndex: page.originalIndex, source: page.source,
-                rectified: page.rectified, ocrText: page.ocrText, ocrBlocks: page.ocrBlocks,
-                annotations: page.annotations.map { item in
-                    PageAnnotation(
-                        id: makeUUID(), kind: item.kind, transform: item.transform, opacity: item.opacity,
-                        zIndex: item.zIndex, text: item.text, strokes: item.strokes, image: item.image,
-                        isStraightened: item.isStraightened,
-                        isFlippedHorizontally: item.isFlippedHorizontally,
-                        isFlippedVertically: item.isFlippedVertically
-                    )
-                }
-            )
-        }
-        return StoredDocument(
-            id: makeUUID(), folderId: folderID, name: name, createdAt: timestamp, updatedAt: timestamp,
-            orderIndex: orderIndex, pages: pages, tagIds: document.tagIds,
-            watermarkPresetId: document.watermarkPresetId
-        )
-    }
-
-    private func replacingPages(_ document: StoredDocument, pages: [DocumentPage]) -> StoredDocument {
-        StoredDocument(
-            id: document.id, folderId: document.folderId, name: document.name, createdAt: document.createdAt,
-            updatedAt: document.updatedAt, orderIndex: document.orderIndex, pages: pages,
-            deletedAt: document.deletedAt, tagIds: document.tagIds, watermarkPresetId: document.watermarkPresetId
-        )
-    }
-
-    private func replacingDocumentMetadata(_ document: StoredDocument, updatedAt: Date) -> StoredDocument {
-        StoredDocument(
-            id: document.id, folderId: document.folderId, name: document.name, createdAt: document.createdAt,
-            updatedAt: updatedAt, orderIndex: document.orderIndex, pages: document.pages,
-            deletedAt: document.deletedAt, tagIds: document.tagIds, watermarkPresetId: document.watermarkPresetId
-        )
-    }
-
-    private func snap(_ value: Double) -> Double {
-        abs(value - 0.5) <= 0.015 ? 0.5 : value
-    }
-
-    private func offsetImageDuplicate(_ transform: AnnotationTransform) -> AnnotationTransform {
-        let offset = 0.03
-        let centerX = transform.centerX <= 1 - offset ? transform.centerX + offset : transform.centerX - offset
-        let centerY = transform.centerY <= 1 - offset ? transform.centerY + offset : transform.centerY - offset
-        return AnnotationTransform(
-            centerX: min(max(centerX, 0), 1), centerY: min(max(centerY, 0), 1),
-            width: transform.width, height: transform.height, rotation: transform.rotation
-        )
-    }
-
-    private func normalizedRotation(_ value: Double) -> Double {
-        var output = value.truncatingRemainder(dividingBy: 360)
-        if output > 180 {
-            output -= 360
-        }
-        if output < -180 {
-            output += 360
-        }
-        return output
     }
 }

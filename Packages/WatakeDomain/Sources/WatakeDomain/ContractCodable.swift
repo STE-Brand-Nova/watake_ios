@@ -604,7 +604,7 @@ extension PageAnnotation {
 }
 
 extension SavedSignature {
-    enum CodingKeys: String, CodingKey { case id, name, strokes, createdAt, updatedAt }
+    enum CodingKeys: String, CodingKey { case id, name, strokes, aspectRatio, createdAt, updatedAt }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -612,6 +612,7 @@ extension SavedSignature {
             id: container.decodeLowercaseUUID(forKey: .id),
             name: container.decode(String.self, forKey: .name),
             strokes: container.decode([InkStroke].self, forKey: .strokes),
+            aspectRatio: container.decodeIfPresent(Double.self, forKey: .aspectRatio) ?? 2.625,
             createdAt: container.decode(Date.self, forKey: .createdAt),
             updatedAt: container.decode(Date.self, forKey: .updatedAt)
         )
@@ -623,6 +624,7 @@ extension SavedSignature {
         try container.encodeLowercaseUUID(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(strokes, forKey: .strokes)
+        try container.encode(aspectRatio, forKey: .aspectRatio)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

@@ -389,6 +389,7 @@ actor MemoryEditorStore: DocumentEditingStore {
     private var discardedAssets: [AssetReference] = []
     private var assets: [UUID: Data] = [:]
     private var assetReadCount = 0
+    private var signatureValues: [SavedSignature] = []
     init(document: StoredDocument, folder: Folder) {
         storedDocument = document
         self.folder = folder
@@ -460,11 +461,18 @@ actor MemoryEditorStore: DocumentEditingStore {
     }
 
     func savedSignatures() -> [SavedSignature] {
-        []
+        signatureValues
     }
 
-    func saveSignature(_: SavedSignature) {}
-    func deleteSignature(id _: UUID) {}
+    func saveSignature(_ signature: SavedSignature) {
+        signatureValues.removeAll { $0.id == signature.id }
+        signatureValues.append(signature)
+    }
+
+    func deleteSignature(id: UUID) {
+        signatureValues.removeAll { $0.id == id }
+    }
+
     func recoveryDraft(documentID _: UUID) -> DocumentEditRecoveryDraft? {
         recovery
     }

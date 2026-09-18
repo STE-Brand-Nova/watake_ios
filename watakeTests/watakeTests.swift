@@ -9,10 +9,20 @@ import DocumentSearchFeature
 import DocumentViewerFeature
 import Foundation
 import Security
+import SwiftUI
 import Testing
 import UIKit
 import WatakeDomain
+@testable import DocumentEditorFeature
 @testable import watake
+
+@MainActor
+struct SignatureInkColorTests {
+    @Test func grayscalePickerKeepsWhiteAndBlack() {
+        #expect(signatureHexColor(Color(uiColor: UIColor(white: 1, alpha: 1))) == "#FFFFFF")
+        #expect(signatureHexColor(Color(uiColor: UIColor(white: 0, alpha: 1))) == "#000000")
+    }
+}
 
 @MainActor
 struct CaptureModeLockPolicyTests {
