@@ -11,11 +11,12 @@
         let showTextStyle: (UUID) -> Void
         let showHighlightStyle: (UUID) -> Void
         let showImageStyle: (UUID) -> Void
+        let showSignatureColor: (UUID) -> Void
+        let showSignatureResize: (UUID) -> Void
         @State private var adjustsHighlight = false
         @GestureState private var movePreview: AnnotationTransform?
         @GestureState private var resizePreview: AnnotationTransform?
         @GestureState private var rotationPreview: AnnotationTransform?
-        @GestureState private var scaleRotationPreview: AnnotationTransform?
 
         var body: some View {
             if annotation.kind == .image {
@@ -24,6 +25,14 @@
                     annotation: annotation,
                     pageSize: pageSize,
                     showImageStyle: showImageStyle
+                )
+            } else if annotation.kind == .signature {
+                SignatureAnnotationLayer(
+                    model: model,
+                    annotation: annotation,
+                    pageSize: pageSize,
+                    showColor: showSignatureColor,
+                    showResize: showSignatureResize
                 )
             } else {
                 nonImageLayer
@@ -51,7 +60,7 @@
                             model.selectAnnotation(annotation.id)
                         }
                     }
-                    .gesture(moveGesture(forceHighlight: false).simultaneously(with: scaleAndRotationGesture))
+                    .gesture(moveGesture(forceHighlight: false))
                 if isSelected {
                     if annotation.kind == .text, movePreview == nil {
                         Rectangle()
@@ -99,7 +108,7 @@
         }
 
         private var displayedTransform: AnnotationTransform {
-            rotationPreview ?? resizePreview ?? scaleRotationPreview ?? movePreview ?? annotation.transform
+            rotationPreview ?? resizePreview ?? movePreview ?? annotation.transform
         }
 
         private var textSelectionControls: some View {
@@ -283,40 +292,6 @@
                         if annotation.kind == .highlight {
                             adjustsHighlight = false
                         }
-                    }
-                }
-        }
-
-        private var scaleAndRotationGesture: some Gesture {
-            MagnifyGesture().simultaneously(with: RotateGesture())
-                .updating($scaleRotationPreview) { value, preview, _ in
-                    guard model.tool == .select,
-                          annotation.kind != .text,
-                          annotation.kind != .highlight,
-                          annotation.kind != .image else { return }
-                    preview = DocumentAnnotationInteraction.scaledAndRotated(
-                        from: annotation.transform,
-                        scale: Double(value.first?.magnification ?? 1),
-                        rotationDelta: value.second?.rotation.degrees ?? 0
-                    )
-                }
-                .onEnded { value in
-                    guard model.tool == .select,
-                          annotation.kind != .text,
-                          annotation.kind != .highlight,
-                          annotation.kind != .image else { return }
-                    let transform = DocumentAnnotationInteraction.scaledAndRotated(
-                        from: annotation.transform,
-                        scale: Double(value.first?.magnification ?? 1),
-                        rotationDelta: value.second?.rotation.degrees ?? 0
-                    )
-                    if transform != annotation.transform {
-                        model.selectAnnotation(annotation.id)
-                        model.transformSelected(
-                            width: transform.width,
-                            height: transform.height,
-                            rotationDelta: transform.rotation - annotation.transform.rotation
-                        )
                     }
                 }
         }

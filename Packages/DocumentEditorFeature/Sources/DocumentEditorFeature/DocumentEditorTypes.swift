@@ -40,6 +40,22 @@ public struct PendingImagePlacement: Equatable, Sendable {
     }
 }
 
+public struct PendingSignaturePlacement: Equatable, Sendable {
+    public let id: UUID
+    public let strokes: [InkStroke]
+    public let aspectRatio: Double
+
+    public init(id: UUID, strokes: [InkStroke], aspectRatio: Double) {
+        self.id = id
+        self.strokes = strokes
+        self.aspectRatio = aspectRatio
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 struct PageHistory: Sendable {
     var undo: [[PageAnnotation]] = []
     var redo: [[PageAnnotation]] = []

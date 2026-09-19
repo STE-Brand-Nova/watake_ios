@@ -24,6 +24,8 @@ public enum WatakeColor {
         public static let base = ColorValue(lightHex: "#FFFFFF", darkHex: "#0B0F1A").color
         public static let raised = ColorValue(lightHex: "#F6F7FB", darkHex: "#141A2A").color
         public static let sunken = ColorValue(lightHex: "#EEF0F6", darkHex: "#0A0E18").color
+        /// Fixed midtone, so dark and white signature ink remain visible in either appearance.
+        public static let signaturePreview = ColorValue(lightHex: "#87909E", darkHex: "#87909E").color
     }
 
     /// Hairline separators. Prefer borders over heavy shadows in Dark mode.

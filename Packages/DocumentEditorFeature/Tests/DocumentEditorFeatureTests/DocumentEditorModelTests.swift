@@ -105,14 +105,6 @@ struct DocumentEditorModelTests {
     }
 
     @Test
-    func scaleRotationPreviewReturnsToOriginalWithoutPersistentState() {
-        let start = AnnotationTransform(centerX: 0.4, centerY: 0.3, width: 0.2, height: 0.1, rotation: 30)
-        let returned = DocumentAnnotationInteraction.scaledAndRotated(from: start, scale: 1, rotationDelta: 0)
-
-        #expect(returned == start)
-    }
-
-    @Test
     func textRotationPreviewUsesStablePageRelativeAngle() {
         let start = AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.2, rotation: 15)
         let rotated = DocumentAnnotationInteraction.rotated(
@@ -386,9 +378,12 @@ actor MemoryEditorStore: DocumentEditingStore {
     private let folder: Folder
     private var recovery: DocumentEditRecoveryDraft?
     private var shouldFailEditedSave = false
+    private var shouldFailSignatureSave = false
+    private var shouldFailSignatureLoad = false
     private var discardedAssets: [AssetReference] = []
     private var assets: [UUID: Data] = [:]
     private var assetReadCount = 0
+    private var signatureValues: [SavedSignature] = []
     init(document: StoredDocument, folder: Folder) {
         storedDocument = document
         self.folder = folder
@@ -404,6 +399,14 @@ actor MemoryEditorStore: DocumentEditingStore {
 
     func failNextEditedSave() {
         shouldFailEditedSave = true
+    }
+
+    func failNextSignatureSave() {
+        shouldFailSignatureSave = true
+    }
+
+    func failNextSignatureLoad() {
+        shouldFailSignatureLoad = true
     }
 
     func setRecovery(_ draft: DocumentEditRecoveryDraft) {
@@ -459,12 +462,27 @@ actor MemoryEditorStore: DocumentEditingStore {
         storedDocument = document
     }
 
-    func savedSignatures() -> [SavedSignature] {
-        []
+    func savedSignatures() throws -> [SavedSignature] {
+        if shouldFailSignatureLoad {
+            shouldFailSignatureLoad = false
+            throw MemoryEditorStoreError.saveFailed
+        }
+        return signatureValues
     }
 
-    func saveSignature(_: SavedSignature) {}
-    func deleteSignature(id _: UUID) {}
+    func saveSignature(_ signature: SavedSignature) throws {
+        if shouldFailSignatureSave {
+            shouldFailSignatureSave = false
+            throw MemoryEditorStoreError.saveFailed
+        }
+        signatureValues.removeAll { $0.id == signature.id }
+        signatureValues.append(signature)
+    }
+
+    func deleteSignature(id: UUID) {
+        signatureValues.removeAll { $0.id == id }
+    }
+
     func recoveryDraft(documentID _: UUID) -> DocumentEditRecoveryDraft? {
         recovery
     }

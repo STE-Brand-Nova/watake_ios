@@ -199,13 +199,22 @@ public struct SavedSignature: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let name: String
     public let strokes: [InkStroke]
+    public let aspectRatio: Double
     public let createdAt: Date
     public let updatedAt: Date
 
-    public init(id: UUID, name: String, strokes: [InkStroke], createdAt: Date, updatedAt: Date) {
+    public init(
+        id: UUID,
+        name: String,
+        strokes: [InkStroke],
+        aspectRatio: Double = 2.625,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
         self.id = id
         self.name = name
         self.strokes = strokes
+        self.aspectRatio = aspectRatio
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -213,6 +222,9 @@ public struct SavedSignature: Identifiable, Codable, Equatable, Sendable {
     public func validate() throws {
         try DomainValidation.validateTrimmed(name, field: "signature.name", maxLength: 80)
         guard !strokes.isEmpty else { throw DomainValidationError.annotationPayloadInvalid }
+        guard aspectRatio.isFinite, aspectRatio >= 0.02, aspectRatio <= 50 else {
+            throw DomainValidationError.annotationPayloadInvalid
+        }
         try strokes.forEach { try $0.validate() }
         guard updatedAt >= createdAt else { throw DomainValidationError.annotationPayloadInvalid }
     }
