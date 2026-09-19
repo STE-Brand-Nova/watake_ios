@@ -131,6 +131,71 @@ struct DocumentSignatureEditingTests {
     }
 
     @Test @MainActor
+    func invalidSignaturePlacementExitsPlacementWithFeedback() {
+        let (model, _) = EditorFixture().makeModel()
+        _ = model.prepareSignaturePlacement(strokes: signatureStrokes(colorHex: "#0B1220"), aspectRatio: 2)
+
+        let invalid = AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.001, height: 0.1)
+        #expect(!model.placePendingSignature(transform: invalid))
+        #expect(model.pendingSignaturePlacement == nil)
+        #expect(model.tool == .select)
+        #expect(model.selectedPage?.annotations.isEmpty == true)
+        #expect(model.errorMessage == "Signature could not be placed. Add it again.")
+        #expect(!model.canUndo)
+    }
+
+    @Test @MainActor
+    func invalidPendingSignaturePayloadAlsoExitsPlacement() throws {
+        let (model, _) = EditorFixture().makeModel()
+        let points = try #require(signatureStrokes(colorHex: "#0B1220").first?.points)
+        model.pendingSignaturePlacement = PendingSignaturePlacement(
+            id: UUID(),
+            strokes: [InkStroke(points: points, width: 0.02, colorHex: "#ZZZZZZ")],
+            aspectRatio: 2
+        )
+        model.tool = .signature
+
+        #expect(!model.placePendingSignature(
+            transform: AnnotationTransform(centerX: 0.5, centerY: 0.5, width: 0.4, height: 0.1)
+        ))
+        #expect(model.pendingSignaturePlacement == nil)
+        #expect(model.tool == .select)
+        #expect(model.selectedPage?.annotations.isEmpty == true)
+        #expect(model.errorMessage == "Signature could not be placed. Add it again.")
+    }
+
+    @Test @MainActor
+    func reuseSaveFailureCanBeHandledInSheetAndRetried() async {
+        let (model, store) = EditorFixture().makeModel()
+        await store.failNextSignatureSave()
+        let strokes = signatureStrokes(colorHex: "#0B1220")
+
+        #expect(await !(model.saveSignature(
+            name: "Work", strokes: strokes, aspectRatio: 2, reportFailure: false
+        )))
+        #expect(model.errorMessage == nil)
+        #expect(model.signatures.isEmpty)
+
+        #expect(await model.saveSignature(
+            name: "Work", strokes: strokes, aspectRatio: 2, reportFailure: false
+        ))
+        #expect(model.signatures.count == 1)
+    }
+
+    @Test @MainActor
+    func successfulReuseSaveDoesNotDependOnListRefresh() async {
+        let (model, store) = EditorFixture().makeModel()
+        await store.failNextSignatureLoad()
+
+        #expect(await model.saveSignature(
+            name: "Work", strokes: signatureStrokes(colorHex: "#0B1220"), aspectRatio: 2,
+            reportFailure: false
+        ))
+        #expect(model.signatures.count == 1)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test @MainActor
     func placedCopiesKeepIndependentColorAndPosition() throws {
         let (model, _) = EditorFixture().makeModel()
         let strokes = signatureStrokes(colorHex: "#0B1220")

@@ -22,6 +22,21 @@ struct SignatureInkColorTests {
         #expect(signatureHexColor(Color(uiColor: UIColor(white: 1, alpha: 1))) == "#FFFFFF")
         #expect(signatureHexColor(Color(uiColor: UIColor(white: 0, alpha: 1))) == "#000000")
     }
+
+    @Test func drawingBoardKeepsWhiteAndDarkInkVisible() {
+        #expect(SignatureBoardContrastPolicy.visibleBoard(for: "#FFFFFF", preferred: .whiteboard) == .blackboard)
+        #expect(SignatureBoardContrastPolicy.visibleBoard(for: "#000000", preferred: .blackboard) == .whiteboard)
+        #expect(SignatureBoardContrastPolicy.visibleBoard(for: "#FFFFFF", preferred: .blackboard) == .blackboard)
+        #expect(SignatureBoardContrastPolicy.visibleBoard(for: "#0B1220", preferred: .whiteboard) == .whiteboard)
+        #expect(
+            SignatureBoardContrastPolicy.message(for: .whiteboard) ==
+                "Dark ink is hard to see on Blackboard. Switched to Whiteboard."
+        )
+        #expect(
+            SignatureBoardContrastPolicy.message(for: .blackboard) ==
+                "Light ink is hard to see on Whiteboard. Switched to Blackboard."
+        )
+    }
 }
 
 @MainActor

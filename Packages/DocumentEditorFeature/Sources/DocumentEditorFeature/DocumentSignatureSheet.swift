@@ -16,6 +16,12 @@
         @State private var name = ""
         @State private var selectedSavedID: UUID?
         @State private var savedInkColor = "#0B1220"
+        @State private var isSavingForReuse = false
+        @State private var failedReuseDraft: NormalizedSignatureDraft?
+        @State private var failedReuseName = ""
+        @State private var showsReuseSaveFailure = false
+        @State private var boardContrastMessage: String?
+        @State private var isApplyingBoardContrast = false
 
         var body: some View {
             NavigationStack {
@@ -26,6 +32,7 @@
                         }
                     }
                     .pickerStyle(.segmented)
+                    .disabled(isSavingForReuse)
                     .padding(.horizontal, WatakeSpacing.md)
                     .padding(.top, WatakeSpacing.sm)
 
@@ -36,36 +43,68 @@
                             savedPanel
                         }
                     }
+                    .allowsHitTesting(!isSavingForReuse)
                 }
                 .navigationTitle("Add Signature")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
+                            .disabled(isSavingForReuse)
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
-                    Button("Use signature", action: useSignature)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-                        .disabled(!canUseSignature)
-                        .padding(.horizontal, WatakeSpacing.md)
-                        .padding(.vertical, WatakeSpacing.sm)
-                        .background(WatakeColor.surface.raised)
-                        .overlay(alignment: .top) { Divider() }
+                    Button(action: useSignature) {
+                        if isSavingForReuse {
+                            ProgressView("Saving signature")
+                        } else {
+                            Text("Use signature")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+                    .disabled(!canUseSignature || isSavingForReuse)
+                    .padding(.horizontal, WatakeSpacing.md)
+                    .padding(.vertical, WatakeSpacing.sm)
+                    .background(WatakeColor.surface.raised)
+                    .overlay(alignment: .top) { Divider() }
                 }
                 .onAppear {
                     selectedSavedID = selectedSavedID ?? model.signatures.first?.id
                 }
                 .onChange(of: inkColor) { _, colorHex in
                     drawing = recoloredSignatureDrawing(drawing, colorHex: colorHex)
+                    keepInkVisible(colorHex: colorHex, preferred: boardStyle)
+                }
+                .onChange(of: boardStyle) { _, style in
+                    if isApplyingBoardContrast {
+                        isApplyingBoardContrast = false
+                        return
+                    }
+                    keepInkVisible(colorHex: inkColor, preferred: style)
+                }
+                .alert("Signature not saved for reuse", isPresented: $showsReuseSaveFailure) {
+                    Button("Try Again") {
+                        guard let failedReuseDraft else { return }
+                        saveAndUse(failedReuseDraft, named: failedReuseName)
+                    }
+                    Button("Use Once") {
+                        guard let failedReuseDraft else { return }
+                        placeAndDismiss(failedReuseDraft)
+                    }
+                    Button("Keep Editing", role: .cancel) {}
+                } message: {
+                    Text("Your signature was not added to Saved. Try again or place it once without saving.")
                 }
             }
             .presentationDetents([.large])
+            .interactiveDismissDisabled(isSavingForReuse)
         }
+    }
 
-        private var drawPanel: some View {
+    extension SignatureSheet {
+        fileprivate var drawPanel: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.md) {
                 Picker("Drawing board", selection: $boardStyle) {
                     ForEach(SignatureBoardStyle.allCases) { style in
@@ -73,6 +112,20 @@
                     }
                 }
                 .pickerStyle(.segmented)
+                if let boardContrastMessage {
+                    Label(boardContrastMessage, systemImage: "info.circle.fill")
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.text.primary)
+                        .padding(WatakeSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(WatakeColor.surface.sunken)
+                        .clipShape(RoundedRectangle(cornerRadius: WatakeRadius.sm))
+                        .accessibilityLabel(boardContrastMessage)
+                } else {
+                    Text("Board switches automatically when ink would be hard to see.")
+                        .watakeType(.caption)
+                        .foregroundStyle(WatakeColor.text.secondary)
+                }
 
                 PencilSignatureCanvas(
                     drawing: $drawing,
@@ -126,7 +179,7 @@
             .padding(.vertical, WatakeSpacing.md)
         }
 
-        private var savedPanel: some View {
+        fileprivate var savedPanel: some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.md) {
                 if model.signatures.isEmpty {
                     ContentUnavailableView(
@@ -147,7 +200,7 @@
             .padding(WatakeSpacing.md)
         }
 
-        private func savedSignatureRow(_ signature: SavedSignature) -> some View {
+        fileprivate func savedSignatureRow(_ signature: SavedSignature) -> some View {
             HStack(spacing: WatakeSpacing.sm) {
                 Button {
                     selectedSavedID = signature.id
@@ -194,7 +247,7 @@
             }
         }
 
-        private func signatureColorControl(title: String, colorHex: Binding<String>) -> some View {
+        fileprivate func signatureColorControl(title: String, colorHex: Binding<String>) -> some View {
             VStack(alignment: .leading, spacing: WatakeSpacing.xs) {
                 Text(title).watakeType(.caption)
                 HStack(spacing: WatakeSpacing.xs) {
@@ -229,7 +282,7 @@
             }
         }
 
-        private var canUseSignature: Bool {
+        fileprivate var canUseSignature: Bool {
             switch tab {
             case .draw:
                 !drawing.strokes.isEmpty &&
@@ -239,30 +292,58 @@
             }
         }
 
-        private func useSignature() {
+        fileprivate func useSignature() {
             switch tab {
             case .draw:
                 guard let draft = normalizedSignatureDraft(drawing, colorHex: inkColor),
-                      model.prepareSignaturePlacement(strokes: draft.strokes, aspectRatio: draft.aspectRatio) else {
-                    return
-                }
+                      !isSavingForReuse else { return }
                 if savesForReuse {
-                    let signatureName = name
-                    Task {
-                        _ = await model.saveSignature(
-                            name: signatureName,
-                            strokes: draft.strokes,
-                            aspectRatio: draft.aspectRatio
-                        )
-                    }
+                    saveAndUse(draft, named: name)
+                } else {
+                    placeAndDismiss(draft)
                 }
-                dismiss()
             case .saved:
                 guard let signature = model.signatures.first(where: { $0.id == selectedSavedID }) else { return }
                 let strokes = recoloredSignatureStrokes(signature.strokes, colorHex: savedInkColor)
                 guard model.prepareSignaturePlacement(strokes: strokes, aspectRatio: signature.aspectRatio) else { return }
                 dismiss()
             }
+        }
+
+        fileprivate func saveAndUse(_ draft: NormalizedSignatureDraft, named name: String) {
+            isSavingForReuse = true
+            Task {
+                let saved = await model.saveSignature(
+                    name: name,
+                    strokes: draft.strokes,
+                    aspectRatio: draft.aspectRatio,
+                    reportFailure: false
+                )
+                isSavingForReuse = false
+                if saved {
+                    placeAndDismiss(draft)
+                } else {
+                    failedReuseDraft = draft
+                    failedReuseName = name
+                    showsReuseSaveFailure = true
+                }
+            }
+        }
+
+        fileprivate func placeAndDismiss(_ draft: NormalizedSignatureDraft) {
+            guard model.prepareSignaturePlacement(strokes: draft.strokes, aspectRatio: draft.aspectRatio) else { return }
+            dismiss()
+        }
+
+        fileprivate func keepInkVisible(colorHex: String, preferred board: SignatureBoardStyle) {
+            let visibleBoard = SignatureBoardContrastPolicy.visibleBoard(for: colorHex, preferred: board)
+            guard visibleBoard != board else {
+                boardContrastMessage = nil
+                return
+            }
+            boardContrastMessage = SignatureBoardContrastPolicy.message(for: visibleBoard)
+            isApplyingBoardContrast = true
+            boardStyle = visibleBoard
         }
     }
 
@@ -408,7 +489,7 @@
         }
     }
 
-    private enum SignatureBoardStyle: String, CaseIterable, Identifiable {
+    enum SignatureBoardStyle: String, CaseIterable, Identifiable {
         case whiteboard
         case blackboard
 
@@ -418,6 +499,38 @@
 
         var title: String {
             rawValue.capitalized
+        }
+    }
+
+    enum SignatureBoardContrastPolicy {
+        static func visibleBoard(for inkHex: String, preferred board: SignatureBoardStyle) -> SignatureBoardStyle {
+            guard inkHex.count == 7, inkHex.first == "#",
+                  let rgb = Int(inkHex.dropFirst(), radix: 16) else { return board }
+            let red = linearComponent((rgb >> 16) & 0xFF)
+            let green = linearComponent((rgb >> 8) & 0xFF)
+            let blue = linearComponent(rgb & 0xFF)
+            let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            let contrast = board == .whiteboard
+                ? 1.05 / (luminance + 0.05)
+                : (luminance + 0.05) / 0.05
+            guard contrast < 3 else { return board }
+            return board == .whiteboard ? .blackboard : .whiteboard
+        }
+
+        static func message(for board: SignatureBoardStyle) -> String {
+            switch board {
+            case .whiteboard:
+                "Dark ink is hard to see on Blackboard. Switched to Whiteboard."
+            case .blackboard:
+                "Light ink is hard to see on Whiteboard. Switched to Blackboard."
+            }
+        }
+
+        private static func linearComponent(_ byte: Int) -> Double {
+            let component = Double(byte) / 255
+            return component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
         }
     }
 

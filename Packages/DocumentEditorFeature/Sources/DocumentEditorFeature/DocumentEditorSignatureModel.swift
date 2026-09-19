@@ -43,8 +43,12 @@ extension DocumentEditorModel {
 
     @discardableResult
     public func placePendingSignature(transform: AnnotationTransform) -> Bool {
-        guard let pendingSignaturePlacement,
-              (try? transform.validate()) != nil else { return false }
+        guard let pendingSignaturePlacement else { return false }
+        guard (try? transform.validate()) != nil, selectedPage != nil else {
+            cancelSignaturePlacement()
+            errorMessage = "Signature could not be placed. Add it again."
+            return false
+        }
         let annotation = PageAnnotation(
             id: makeUUID(),
             kind: .signature,
@@ -52,13 +56,22 @@ extension DocumentEditorModel {
             zIndex: nextZIndex,
             strokes: pendingSignaturePlacement.strokes
         )
-        guard (try? annotation.validate()) != nil else { return false }
+        guard (try? annotation.validate()) != nil else {
+            cancelSignaturePlacement()
+            errorMessage = "Signature could not be placed. Add it again."
+            return false
+        }
         self.pendingSignaturePlacement = nil
         append(annotation)
         return true
     }
 
-    public func saveSignature(name: String, strokes: [InkStroke], aspectRatio: Double) async -> Bool {
+    public func saveSignature(
+        name: String,
+        strokes: [InkStroke],
+        aspectRatio: Double,
+        reportFailure: Bool = true
+    ) async -> Bool {
         let timestamp = now()
         let signature = SavedSignature(
             id: makeUUID(), name: name, strokes: strokes, aspectRatio: aspectRatio,
@@ -67,10 +80,17 @@ extension DocumentEditorModel {
         do {
             try signature.validate()
             try await store.saveSignature(signature)
-            signatures = try await store.savedSignatures()
+            signatures.removeAll { $0.id == signature.id }
+            signatures.append(signature)
+            signatures.sort {
+                let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+            }
             return true
         } catch {
-            errorMessage = "Signature could not be saved."
+            if reportFailure {
+                errorMessage = "Signature could not be saved."
+            }
             return false
         }
     }

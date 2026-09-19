@@ -49,20 +49,6 @@ enum DocumentAnnotationInteraction {
         )
     }
 
-    static func scaledAndRotated(
-        from start: AnnotationTransform,
-        scale: Double,
-        rotationDelta: Double
-    ) -> AnnotationTransform {
-        AnnotationTransform(
-            centerX: start.centerX,
-            centerY: start.centerY,
-            width: min(max(start.width * scale, 0.01), 1),
-            height: min(max(start.height * scale, 0.01), 1),
-            rotation: normalizedRotation(start.rotation + rotationDelta)
-        )
-    }
-
     static func rotated(
         from start: AnnotationTransform,
         startLocation: CGPoint,
