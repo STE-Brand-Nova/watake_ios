@@ -31,6 +31,14 @@ enum DomainValidation {
         }
     }
 
+    static func validateIconID(_ value: String) throws {
+        let range = value.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression)
+        let isValid = value.count <= 64 && range?.lowerBound == value.startIndex && range?.upperBound == value.endIndex
+        guard isValid else {
+            throw DomainValidationError.invalidIconID(value)
+        }
+    }
+
     static func validateDocumentPages(_ pages: [DocumentPage]) throws {
         guard !pages.isEmpty else {
             throw DomainValidationError.documentRequiresPage

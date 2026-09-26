@@ -8,25 +8,44 @@ struct FolderEditor: View {
     @Bindable var store: LibraryStore
     @State private var name = ""
     @State private var color = ArchiveTagPalette.colors[8]
+    @State private var iconId = FolderIconCatalog.defaultIdentifier
+    @State private var isSubmitting = false
+
+    private var isValid: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= 120 && !isSubmitting
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Folder name", text: $name).textInputAutocapitalization(.words)
-                PalettePicker(selection: $color)
+                Section("Name") {
+                    TextField("Folder name", text: $name).textInputAutocapitalization(.words)
+                }
+                Section("Preview") {
+                    FolderAppearancePreview(name: name, iconId: iconId, color: tagColor(for: color))
+                }
+                Section("Icon") {
+                    FolderIconPicker(selection: $iconId, color: tagColor(for: color))
+                }
+                Section("Color") {
+                    PalettePicker(selection: $color, accessibilityName: "Folder color")
+                }
             }
             .navigationTitle("New folder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
+                    Button(isSubmitting ? "Creating…" : "Create") {
+                        isSubmitting = true
                         Task {
-                            if await store.createFolder(name: name, colorHex: color) != nil {
+                            defer { isSubmitting = false }
+                            if await store.createFolder(name: name, colorHex: color, iconId: iconId) != nil {
                                 dismiss()
                             }
                         }
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!isValid)
                 }
             }
         }
@@ -112,30 +131,54 @@ struct FolderEdit: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var store: LibraryStore
     let folder: Folder
-    @State private var name = ""
-    @State private var color = ArchiveTagPalette.colors[8]
+    @State private var name: String
+    @State private var color: String
+    @State private var iconId: String
+    @State private var isSubmitting = false
+
+    init(store: LibraryStore, folder: Folder) {
+        self.store = store
+        self.folder = folder
+        _name = State(initialValue: folder.name)
+        _color = State(initialValue: folder.colorHex)
+        _iconId = State(initialValue: folder.iconId)
+    }
+
+    private var isValid: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= 120 && !isSubmitting
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Folder name", text: $name)
-                PalettePicker(selection: $color)
-            }
-            .onAppear {
-                name = folder.name
-                color = folder.colorHex
+                Section("Name") {
+                    TextField("Folder name", text: $name).textInputAutocapitalization(.words)
+                }
+                Section("Preview") {
+                    FolderAppearancePreview(name: name, iconId: iconId, color: tagColor(for: color))
+                }
+                Section("Icon") {
+                    FolderIconPicker(selection: $iconId, color: tagColor(for: color))
+                }
+                Section("Color") {
+                    PalettePicker(selection: $color, accessibilityName: "Folder color")
+                }
             }
             .navigationTitle("Edit folder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(isSubmitting ? "Saving…" : "Save") {
+                        isSubmitting = true
                         Task {
-                            await store.renameFolder(folder, name: name)
-                            await store.recolorFolder(folder, colorHex: color)
-                            dismiss()
+                            defer { isSubmitting = false }
+                            if await store.updateFolder(folder, name: name, colorHex: color, iconId: iconId) {
+                                dismiss()
+                            }
                         }
                     }
+                    .disabled(!isValid)
                 }
             }
         }

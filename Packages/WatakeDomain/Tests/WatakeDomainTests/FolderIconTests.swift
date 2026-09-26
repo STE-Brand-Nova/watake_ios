@@ -34,4 +34,33 @@ struct FolderIconTests {
 
         #expect(folder.iconId == FolderIconCatalog.defaultIdentifier)
     }
+
+    @Test("all catalog identifiers must be valid icon IDs")
+    func allCatalogIdentifiersAreValid() {
+        #expect(throws: Never.self) {
+            for id in FolderIconCatalog.identifiers {
+                try DomainValidation.validateIconID(id)
+            }
+        }
+    }
+
+    @Test("validateIconID rejects empty, uppercase, and malformed strings")
+    func validateIconIDRejectsMalformed() {
+        #expect(throws: DomainValidationError.invalidIconID("")) {
+            try DomainValidation.validateIconID("")
+        }
+        #expect(throws: DomainValidationError.invalidIconID("Folder")) {
+            try DomainValidation.validateIconID("Folder")
+        }
+        #expect(throws: DomainValidationError.invalidIconID("folder_icon")) {
+            try DomainValidation.validateIconID("folder_icon")
+        }
+        #expect(throws: DomainValidationError.invalidIconID("-folder")) {
+            try DomainValidation.validateIconID("-folder")
+        }
+        let tooLong = String(repeating: "a", count: 65)
+        #expect(throws: DomainValidationError.invalidIconID(tooLong)) {
+            try DomainValidation.validateIconID(tooLong)
+        }
+    }
 }

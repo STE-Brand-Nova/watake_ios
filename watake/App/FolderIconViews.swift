@@ -10,8 +10,13 @@ struct FolderIconDefinition: Identifiable, Equatable {
         "FolderIcon-\(id)"
     }
 
+    static let defaultDefinition = FolderIconDefinition(
+        id: FolderIconCatalog.defaultIdentifier,
+        title: "Folder"
+    )
+
     static let all: [FolderIconDefinition] = [
-        .init(id: "folder", title: "Folder"),
+        defaultDefinition,
         .init(id: "receipt", title: "Receipts"),
         .init(id: "briefcase", title: "Work"),
         .init(id: "house", title: "Home"),
@@ -26,7 +31,7 @@ struct FolderIconDefinition: Identifiable, Equatable {
     ]
 
     static func resolve(_ id: String) -> FolderIconDefinition {
-        all.first(where: { $0.id == id }) ?? all[0]
+        all.first(where: { $0.id == id }) ?? defaultDefinition
     }
 }
 

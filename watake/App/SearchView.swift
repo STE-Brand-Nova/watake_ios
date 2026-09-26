@@ -115,10 +115,7 @@ private struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: WatakeSpacing.sm) {
-            Image(systemName: systemImage)
-                .foregroundStyle(WatakeColor.text.secondary)
-                .frame(minWidth: 24)
-                .accessibilityHidden(true)
+            resultIcon
 
             VStack(alignment: .leading, spacing: WatakeSpacing.xxs) {
                 Text(result.displayName)
@@ -141,10 +138,17 @@ private struct SearchResultRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var systemImage: String {
+    @ViewBuilder
+    private var resultIcon: some View {
         switch result {
-        case .folder: "folder"
-        case .document: "doc.text"
+        case .folder(let folder):
+            FolderIconView(iconId: folder.iconId, color: tagColor(for: folder.colorHex))
+                .frame(width: WatakeSpacing.xl, height: WatakeSpacing.xl)
+        case .document:
+            Image(systemName: "doc.text")
+                .foregroundStyle(WatakeColor.text.secondary)
+                .frame(width: WatakeSpacing.xl, height: WatakeSpacing.xl)
+                .accessibilityHidden(true)
         }
     }
 

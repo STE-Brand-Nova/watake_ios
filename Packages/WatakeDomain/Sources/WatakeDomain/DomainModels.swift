@@ -4,6 +4,7 @@ public enum DomainValidationError: Error, Equatable, Sendable {
     case emptyName(field: String)
     case nameTooLong(field: String, maxLength: Int)
     case invalidColorHex(String)
+    case invalidIconID(String)
     case invalidUUIDString(String)
     case invalidDateString(String)
     case documentRequiresPage
@@ -81,6 +82,7 @@ public struct Folder: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let name: String
     public let colorHex: String
+    public let iconId: String
     public let createdAt: Date
     public let deletedAt: Date?
 
@@ -88,12 +90,14 @@ public struct Folder: Identifiable, Codable, Equatable, Sendable {
         id: UUID,
         name: String,
         colorHex: String,
+        iconId: String = FolderIconCatalog.defaultIdentifier,
         createdAt: Date,
         deletedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
         self.colorHex = colorHex
+        self.iconId = iconId
         self.createdAt = createdAt
         self.deletedAt = deletedAt
     }
@@ -101,6 +105,7 @@ public struct Folder: Identifiable, Codable, Equatable, Sendable {
     public func validate() throws {
         try DomainValidation.validateTrimmed(name, field: "name", maxLength: 120)
         try DomainValidation.validateColorHex(colorHex)
+        try DomainValidation.validateIconID(iconId)
     }
 }
 

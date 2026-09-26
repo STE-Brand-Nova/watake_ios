@@ -7,6 +7,25 @@ import WatakeStorage
 @testable import ArchiveServices
 
 struct ArchiveServiceTests {
+    @Test func createsAndUpdatesFolderAppearance() async throws {
+        let original = makeFolder()
+        let repository = MemoryRepository(folder: original, documents: [])
+        let service = ArchiveService(repository: repository)
+
+        let created = try await service.createFolder(name: "Receipts", colorHex: "#F97316", iconId: "receipt")
+        #expect(created.iconId == "receipt")
+
+        let updated = try await service.updateFolder(
+            folderId: created.id,
+            name: "Tax receipts",
+            colorHex: "#8B5CF6",
+            iconId: "briefcase"
+        )
+        #expect(updated.name == "Tax receipts")
+        #expect(updated.colorHex == "#8B5CF6")
+        #expect(updated.iconId == "briefcase")
+    }
+
     @Test func renameAndStableReorderPersist() async throws {
         let folder = makeFolder()
         let first = makeDocument(folder: folder, order: 0)
@@ -599,7 +618,7 @@ struct ArchivePermanentDeleteTests {
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let expiredTimestamp = timestamp.addingTimeInterval(-31 * 86400)
 
-        let folder = makeFolder(deletedAt: expiredTimestamp)
+        let folder = makeFolder()
         let bytes = Data("page".utf8)
         let reference = AssetReference(
             id: UUID(), relativePath: "documents/\(UUID().uuidString.lowercased())/source/page.jpg",
@@ -615,8 +634,11 @@ struct ArchivePermanentDeleteTests {
         try await storage.saveAsset(bytes, reference: reference)
         try await storage.saveDocument(document)
 
-        let archive = ArchiveService(repository: storage, now: { timestamp })
-        let didPurge = await archive.purgeExpiredTrash()
+        let trashArchive = ArchiveService(repository: storage, now: { expiredTimestamp })
+        try await trashArchive.moveToTrash(folderId: folder.id)
+
+        let purgeArchive = ArchiveService(repository: storage, now: { timestamp })
+        let didPurge = await purgeArchive.purgeExpiredTrash()
         #expect(didPurge == true)
 
         let reloadedStorage = WatakeFileStorage(
