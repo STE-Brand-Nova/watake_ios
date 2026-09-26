@@ -47,13 +47,28 @@ struct LibraryView: View {
         .background(WatakeColor.surface.base)
         .navigationTitle(selectedFolder?.name ?? "Files")
         .toolbar {
-            if selectedFolder != nil {
+            if let selectedFolder {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Folders") { store.closeFolder() }.accessibilityLabel("Back to folders")
+                }
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: WatakeSpacing.xs) {
+                        FolderIconView(iconId: selectedFolder.iconId, color: tagColor(for: selectedFolder.colorHex))
+                            .frame(width: WatakeSpacing.lg, height: WatakeSpacing.lg)
+                        Text(selectedFolder.name)
+                            .watakeType(.bodyEmphasis)
+                            .foregroundStyle(WatakeColor.text.primary)
+                            .lineLimit(1)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(selectedFolder.name), folder")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    if let selectedFolder {
+                        Button { editingFolder = selectedFolder } label: { Label("Edit folder", systemImage: "pencil") }
+                    }
                     Button { isCreatingFolder = true } label: { Label("New folder", systemImage: "folder.badge.plus") }
                     Button { isManagingTags = true } label: { Label("Manage Tags", systemImage: "tag") }
                 } label: {
@@ -175,7 +190,7 @@ struct LibraryView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            Button("Rename or change color") { editingFolder = folder }
+                            Button("Edit folder") { editingFolder = folder }
                             Button("Move to Trash", role: .destructive) { Task { await store.trashFolder(folder) } }
                         }
                     }
@@ -201,7 +216,8 @@ private struct FolderSummaryCard: View {
     var body: some View {
         WatakeCard {
             HStack(alignment: .top, spacing: WatakeSpacing.sm) {
-                Image(systemName: "folder.fill").foregroundStyle(tagColor(for: folder.colorHex)).font(.title2)
+                FolderIconView(iconId: folder.iconId, color: tagColor(for: folder.colorHex))
+                    .frame(width: WatakeSpacing.xxl, height: WatakeSpacing.xxl)
                 VStack(alignment: .leading, spacing: WatakeSpacing.xxs) {
                     Text(folder.name).watakeType(.bodyEmphasis).foregroundStyle(WatakeColor.text.primary).lineLimit(2)
                     Text("\(originals) original\(originals == 1 ? "" : "s") · \(copies) cop\(copies == 1 ? "y" : "ies")")

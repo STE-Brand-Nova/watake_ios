@@ -386,6 +386,7 @@ struct TagEditSheet: View {
 
 struct PalettePicker: View {
     @Binding var selection: String
+    var accessibilityName = "Tag color"
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(44)), count: 4), spacing: WatakeSpacing.sm) {
             ForEach(Array(ArchiveTagPalette.colors.enumerated()), id: \.element) { index, hex in
@@ -400,9 +401,9 @@ struct PalettePicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Tag color \(index + 1)")
+                .accessibilityLabel("\(accessibilityName) \(index + 1)")
                 .accessibilityAddTraits(selection == hex ? [.isSelected] : [])
-                .accessibilityHint(selection == hex ? "Selected" : "Selects this tag color")
+                .accessibilityHint(selection == hex ? "Selected" : "Selects this \(accessibilityName.lowercased())")
             }
         }
     }

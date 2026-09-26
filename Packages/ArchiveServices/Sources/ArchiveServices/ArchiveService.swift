@@ -38,8 +38,12 @@ public actor ArchiveService {
         self.now = now
     }
 
-    public func createFolder(name: String, colorHex: String) async throws -> Folder {
-        let folder = Folder(id: UUID(), name: name, colorHex: colorHex, createdAt: now())
+    public func createFolder(
+        name: String,
+        colorHex: String,
+        iconId: String = FolderIconCatalog.defaultIdentifier
+    ) async throws -> Folder {
+        let folder = Folder(id: UUID(), name: name, colorHex: colorHex, iconId: iconId, createdAt: now())
         try folder.validate()
         try await repository.saveFolder(folder)
         return folder
@@ -48,7 +52,13 @@ public actor ArchiveService {
     public func rename(folderId: UUID, to name: String) async throws -> Folder {
         guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
         guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
-        let updated = Folder(id: folder.id, name: name, colorHex: folder.colorHex, createdAt: folder.createdAt)
+        let updated = Folder(
+            id: folder.id,
+            name: name,
+            colorHex: folder.colorHex,
+            iconId: folder.iconId,
+            createdAt: folder.createdAt
+        )
         try updated.validate()
         try await repository.saveFolder(updated)
         return updated
@@ -57,7 +67,33 @@ public actor ArchiveService {
     public func recolor(folderId: UUID, colorHex: String) async throws -> Folder {
         guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
         guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
-        let updated = Folder(id: folder.id, name: folder.name, colorHex: colorHex, createdAt: folder.createdAt)
+        let updated = Folder(
+            id: folder.id,
+            name: folder.name,
+            colorHex: colorHex,
+            iconId: folder.iconId,
+            createdAt: folder.createdAt
+        )
+        try updated.validate()
+        try await repository.saveFolder(updated)
+        return updated
+    }
+
+    public func updateFolder(
+        folderId: UUID,
+        name: String,
+        colorHex: String,
+        iconId: String
+    ) async throws -> Folder {
+        guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
+        guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
+        let updated = Folder(
+            id: folder.id,
+            name: name,
+            colorHex: colorHex,
+            iconId: iconId,
+            createdAt: folder.createdAt
+        )
         try updated.validate()
         try await repository.saveFolder(updated)
         return updated
@@ -171,14 +207,25 @@ public actor ArchiveService {
         // tombstones. This preserves independently deleted documents and
         // avoids child writes after file storage rejects trashed folders.
         try await repository.saveFolder(Folder(
-            id: folder.id, name: folder.name, colorHex: folder.colorHex, createdAt: folder.createdAt, deletedAt: timestamp
+            id: folder.id,
+            name: folder.name,
+            colorHex: folder.colorHex,
+            iconId: folder.iconId,
+            createdAt: folder.createdAt,
+            deletedAt: timestamp
         ))
     }
 
     public func restore(folderId: UUID) async throws {
         guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
         guard folder.deletedAt != nil else { throw ArchiveError.folderTrashed }
-        try await repository.saveFolder(Folder(id: folder.id, name: folder.name, colorHex: folder.colorHex, createdAt: folder.createdAt))
+        try await repository.saveFolder(Folder(
+            id: folder.id,
+            name: folder.name,
+            colorHex: folder.colorHex,
+            iconId: folder.iconId,
+            createdAt: folder.createdAt
+        ))
     }
 
     public func deletePermanently(documentId: UUID) async throws {

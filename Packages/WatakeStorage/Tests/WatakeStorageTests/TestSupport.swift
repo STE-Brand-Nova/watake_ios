@@ -75,10 +75,11 @@ func makeFolder(
     id: UUID = UUID(),
     name: String = "Transcripts",
     colorHex: String = "#112233",
+    iconId: String = FolderIconCatalog.defaultIdentifier,
     createdAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
     deletedAt: Date? = nil
 ) -> Folder {
-    Folder(id: id, name: name, colorHex: colorHex, createdAt: createdAt, deletedAt: deletedAt)
+    Folder(id: id, name: name, colorHex: colorHex, iconId: iconId, createdAt: createdAt, deletedAt: deletedAt)
 }
 
 func makeAssetReference(

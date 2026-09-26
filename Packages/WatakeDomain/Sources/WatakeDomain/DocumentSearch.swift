@@ -46,11 +46,18 @@ public struct FolderSearchResult: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let name: String
     public let colorHex: String
+    public let iconId: String
 
-    public init(id: UUID, name: String, colorHex: String) {
+    public init(
+        id: UUID,
+        name: String,
+        colorHex: String,
+        iconId: String = FolderIconCatalog.defaultIdentifier
+    ) {
         self.id = id
         self.name = name
         self.colorHex = colorHex
+        self.iconId = iconId
     }
 }
 

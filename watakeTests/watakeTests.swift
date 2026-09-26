@@ -17,6 +17,26 @@ import WatakeDomain
 @testable import watake
 
 @MainActor
+struct FolderIconTests {
+    @Test func appCatalogMatchesSharedContract() {
+        #expect(FolderIconDefinition.all.map(\.id) == FolderIconCatalog.identifiers)
+        #expect(FolderIconDefinition.resolve("newer-platform-icon").id == FolderIconCatalog.defaultIdentifier)
+    }
+
+    @Test func resolveReturnsSafeFallbackWhenUnknownOrEmpty() {
+        #expect(FolderIconDefinition.resolve("").id == FolderIconCatalog.defaultIdentifier)
+        #expect(FolderIconDefinition.resolve("non-existent-icon").id == FolderIconCatalog.defaultIdentifier)
+    }
+
+    @Test func definitionsHaveValidAssetsAndTitles() {
+        for definition in FolderIconDefinition.all {
+            #expect(!definition.title.isEmpty)
+            #expect(definition.assetName.hasPrefix("FolderIcon-"))
+        }
+    }
+}
+
+@MainActor
 struct SignatureInkColorTests {
     @Test func grayscalePickerKeepsWhiteAndBlack() {
         #expect(signatureHexColor(Color(uiColor: UIColor(white: 1, alpha: 1))) == "#FFFFFF")
