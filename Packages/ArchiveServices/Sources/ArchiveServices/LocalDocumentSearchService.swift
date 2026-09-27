@@ -22,7 +22,12 @@ public actor LocalDocumentSearchService: DocumentSearching {
         for folder in activeFolders {
             try Task.checkCancellation()
             if query.matches(folder.name) {
-                results.append(.folder(FolderSearchResult(id: folder.id, name: folder.name, colorHex: folder.colorHex)))
+                results.append(.folder(FolderSearchResult(
+                    id: folder.id,
+                    name: folder.name,
+                    colorHex: folder.colorHex,
+                    iconId: folder.iconId
+                )))
             }
 
             let documents = try await repository.documents(in: folder.id)

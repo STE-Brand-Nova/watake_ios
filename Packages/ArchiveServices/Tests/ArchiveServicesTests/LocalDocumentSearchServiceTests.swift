@@ -201,6 +201,19 @@ private actor SearchRepository: DocumentRepository {
     func saveDocument(_: StoredDocument) async throws {}
     func moveDocument(_: StoredDocument) async throws {}
     func deleteDocument(id _: UUID) async throws {}
+    func trashedFolders() async throws -> [Folder] {
+        folderValues.values.filter { $0.deletedAt != nil }
+    }
+
+    func trashedDocuments() async throws -> [StoredDocument] {
+        documentValues.values.filter { $0.deletedAt != nil }
+    }
+
+    func deleteFolder(id _: UUID) async throws {}
+    func hasOtherReferences(to _: AssetReference, excludingDocumentId _: UUID) async throws -> Bool {
+        false
+    }
+
     func tags() async throws -> [WatakeDomain.Tag] {
         Array(tagValues.values)
     }

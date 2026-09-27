@@ -13,17 +13,19 @@ struct RoundTripTests {
         defer { deleteTestKeychainKey(service: service) }
         let storage = makeStorage(root: root, service: service)
 
-        let folder = makeFolder(name: "Original")
+        let folder = makeFolder(name: "Original", iconId: "receipt")
         try await storage.saveFolder(folder)
 
         let fetched = try await storage.folder(id: folder.id)
         #expect(fetched == folder)
+        #expect(fetched?.iconId == "receipt")
 
-        let updated = makeFolder(id: folder.id, name: "Renamed", createdAt: folder.createdAt)
+        let updated = makeFolder(id: folder.id, name: "Renamed", iconId: "archive", createdAt: folder.createdAt)
         try await storage.saveFolder(updated)
 
         let refetched = try await storage.folder(id: folder.id)
         #expect(refetched?.name == "Renamed")
+        #expect(refetched?.iconId == "archive")
 
         let list = try await storage.folders()
         #expect(list.map(\.id) == [folder.id])

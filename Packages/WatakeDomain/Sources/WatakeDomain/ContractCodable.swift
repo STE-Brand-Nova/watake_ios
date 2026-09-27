@@ -5,6 +5,7 @@ extension Folder {
         case id
         case name
         case colorHex
+        case iconId
         case createdAt
         case deletedAt
     }
@@ -15,6 +16,7 @@ extension Folder {
             id: container.decodeLowercaseUUID(forKey: .id),
             name: container.decode(String.self, forKey: .name),
             colorHex: container.decode(String.self, forKey: .colorHex),
+            iconId: container.decodeIfPresent(String.self, forKey: .iconId) ?? FolderIconCatalog.defaultIdentifier,
             createdAt: container.decode(Date.self, forKey: .createdAt),
             deletedAt: container.decodeIfPresent(Date.self, forKey: .deletedAt)
         )
@@ -26,6 +28,7 @@ extension Folder {
         try container.encodeLowercaseUUID(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(colorHex, forKey: .colorHex)
+        try container.encode(iconId, forKey: .iconId)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }

@@ -18,8 +18,8 @@ import WatakeStorage
 @Observable
 final class LibraryStore {
     let storage: WatakeFileStorage
-    private let archive: ArchiveService
-    private let importer: ImportedDocumentService
+    let archive: ArchiveService
+    let importer: ImportedDocumentService
     private let thumbnailCache: ThumbnailCache?
     private let ocrRecognizer: VisionOCRRecognizer
     private let watermarkIssuanceService: WatermarkIssuanceService
@@ -93,41 +93,8 @@ final class LibraryStore {
 }
 
 extension LibraryStore {
-    var activeFolders: [Folder] {
-        folders.filter { $0.deletedAt == nil }
-    }
-
-    var trashedFolders: [Folder] {
-        folders.filter { $0.deletedAt != nil }
-    }
-
-    func documents(in folder: Folder) -> [StoredDocument] {
-        guard self.folder(for: folder.id)?.deletedAt == nil else { return [] }
-        return (documentsByFolder[folder.id] ?? []).filter { $0.deletedAt == nil }.sorted { $0.orderIndex < $1.orderIndex }
-    }
-
-    /// `documents(in:)` filtered by `selectedTagFilterID`, if any. Never
-    /// changes folder counts, ordering, or persisted preferences — folder
-    /// cards must keep calling the unfiltered `documents(in:)`.
-    func filteredDocuments(in folder: Folder) -> [StoredDocument] {
-        let ordered = documents(in: folder)
-        guard let selectedTagFilterID else { return ordered }
-        return ordered.filter { $0.tagIds.contains(selectedTagFilterID) }
-    }
-
     func setTagFilter(_ tag: Tag?) {
         selectedTagFilterID = tag?.id
-    }
-
-    var trashedDocuments: [StoredDocument] {
-        documentsByFolder.values.flatMap(\.self).filter { $0.deletedAt != nil }
-    }
-
-    var activeDocuments: [StoredDocument] {
-        documentsByFolder.values.flatMap(\.self)
-            .filter { document in
-                document.deletedAt == nil && folder(for: document.folderId)?.deletedAt == nil
-            }
     }
 
     var activeWatermarkRenditions: [WatermarkRendition] {
@@ -243,86 +210,6 @@ extension LibraryStore {
             )
         } catch {
             errorMessage = "Archive could not load. Try again."
-        }
-    }
-
-    func createFolder(name: String, colorHex: String = ArchiveTagPalette.colors[8]) async -> Folder? {
-        do {
-            let folder = try await archive.createFolder(name: name, colorHex: colorHex)
-            await load()
-            return folder
-        } catch {
-            errorMessage = "Could not create folder. Try again."
-            return nil
-        }
-    }
-
-    func renameFolder(_ folder: Folder, name: String) async {
-        await run { _ = try await archive.rename(folderId: folder.id, to: name) }
-    }
-
-    func recolorFolder(_ folder: Folder, colorHex: String) async {
-        await run {
-            _ = try await archive.recolor(folderId: folder.id, colorHex: colorHex)
-        }
-    }
-
-    func renameDocument(_ document: StoredDocument, name: String) async {
-        await run {
-            _ = try await archive.rename(documentId: document.id, to: name)
-        }
-    }
-
-    func reorder(folder: Folder, documents: [StoredDocument]) async {
-        await run { try await archive.reorderDocuments(in: folder.id, ids: documents.map(\.id)) }
-    }
-
-    /// Moves `document` into `destination`. Returns whether the move
-    /// succeeded; a recoverable, user-facing message is set on
-    /// `errorMessage` for the same/trashed/unavailable destination cases
-    /// instead of the generic fallback `run(_:)` message.
-    func moveDocument(_ document: StoredDocument, to destination: Folder) async -> Bool {
-        do {
-            _ = try await archive.move(documentId: document.id, toFolderId: destination.id)
-            await load()
-            return true
-        } catch let error as ArchiveError {
-            errorMessage = moveErrorMessage(error)
-            return false
-        } catch {
-            errorMessage = "Could not move document. Try again."
-            return false
-        }
-    }
-
-    private func moveErrorMessage(_ error: ArchiveError) -> String {
-        switch error {
-        case .sameFolder:
-            "This document is already in that folder."
-        case .folderTrashed:
-            "Can't move a document into a folder that's in Trash."
-        case .folderUnavailable:
-            "That folder is no longer available."
-        case .documentTrashed:
-            "Can't move a document that's in Trash."
-        default:
-            "Could not move document. Try again."
-        }
-    }
-
-    /// Returns the created tag on success, or `nil` with `errorMessage` set
-    /// (duplicate label / non-palette color / persistence failure) so callers
-    /// can preserve the user's input instead of clearing it.
-    func save(pages: [ImportedPage], grouping: GalleryGrouping, folder: Folder, name: String) async -> Bool {
-        do {
-            _ = try await importer.save(pages: pages, grouping: grouping, into: folder.id, named: name)
-            await load()
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            errorMessage = "Could not save capture. Review pages remain available to retry."
-            return false
         }
     }
 
@@ -587,17 +474,6 @@ extension LibraryStore {
         guard let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
         documents[index] = document
         documentsByFolder[document.folderId] = documents
-    }
-
-    private func run(_ operation: () async throws -> Void) async {
-        do {
-            try await operation()
-            await load()
-        } catch is CancellationError {
-            // User cancellation is intentionally silent.
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-        }
     }
 }
 
@@ -872,64 +748,6 @@ extension LibraryStore {
         }
         if didPurge || !expiredRenditionIDs.isEmpty {
             await load()
-        }
-    }
-}
-
-// MARK: - Tags
-
-extension LibraryStore {
-    func createTag(label: String, colorHex: String) async -> Tag? {
-        do {
-            let tag = try await archive.createTag(label: label, colorHex: colorHex)
-            await load()
-            return tag
-        } catch let error as ArchiveError {
-            errorMessage = tagErrorMessage(error)
-            return nil
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return nil
-        }
-    }
-
-    /// Returns the updated tag on success, or `nil` with `errorMessage` set.
-    func editTag(_ tag: Tag, label: String, colorHex: String) async -> Tag? {
-        do {
-            let updated = try await archive.updateTag(id: tag.id, label: label, colorHex: colorHex)
-            await load()
-            return updated
-        } catch let error as ArchiveError {
-            errorMessage = tagErrorMessage(error)
-            return nil
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return nil
-        }
-    }
-
-    private func tagErrorMessage(_ error: ArchiveError) -> String {
-        switch error {
-        case .duplicateTagLabel:
-            "A tag with that name already exists."
-        case .invalidTagColor:
-            "Choose one of the available tag colors."
-        default:
-            "Could not save changes. Your original pages are unchanged."
-        }
-    }
-
-    /// Returns whether the assignment succeeded so callers (e.g. the tag
-    /// assignment sheet) can keep the sheet open and show the error on
-    /// failure instead of dismissing as if it saved.
-    func assign(tagIds: [UUID], document: StoredDocument) async -> Bool {
-        do {
-            _ = try await archive.assign(tagIds: tagIds, to: document.id)
-            await load()
-            return true
-        } catch {
-            errorMessage = "Could not save changes. Your original pages are unchanged."
-            return false
         }
     }
 }
