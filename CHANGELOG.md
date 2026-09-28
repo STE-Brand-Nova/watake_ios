@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.25.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.24.0...watake-ios-v0.25.0) (2026-09-28)
+
+
+### Features
+
+* **doc-editor:** add WYSIWYG document editor with page annotations ([6d4e8bc](https://github.com/STE-Brand-Nova/watake_ios/commit/6d4e8bcde4e99695d7c91b2e714177dc89df6f86))
+* **doc-editor:** bounding selection box text editor ([37ea544](https://github.com/STE-Brand-Nova/watake_ios/commit/37ea544465c664d2fe8d6e1d12316abca7e88cb6))
+* **doc-editor:** init document editor ([4e15b68](https://github.com/STE-Brand-Nova/watake_ios/commit/4e15b68b59826df28e2a2d97063b6b4ba7e72313))
+* **doc-editor:** responsive and fix glitch text editor ([7b2a72d](https://github.com/STE-Brand-Nova/watake_ios/commit/7b2a72d3a65bf7ba29b17ae8e70f3196e6810edb))
+* **doc-editor:** responsive and fix glitch text editor ([5b02217](https://github.com/STE-Brand-Nova/watake_ios/commit/5b022179c8951025b839c596c26644f5a73cc0cb))
+* **doc-editor:** rotate text edit implementation ([755596b](https://github.com/STE-Brand-Nova/watake_ios/commit/755596b1a944b3fee2786f7d2e0260f3adb3a7cd))
+* **doc-highlight:** audited finding bug ([a843fbe](https://github.com/STE-Brand-Nova/watake_ios/commit/a843fbe25477c53ef43006ce50ba46b091d1c02a))
+* **doc-highlight:** highlight initial guide ([9f334ad](https://github.com/STE-Brand-Nova/watake_ios/commit/9f334adb18348358c7edde43580a51c1eb503fa0))
+* **doc-highlight:** highlight viewer mode ([42e6ac2](https://github.com/STE-Brand-Nova/watake_ios/commit/42e6ac29e766cad5e717384b0c3104511b60ef7e))
+* **doc-highlight:** init highlight mode ([13e14e1](https://github.com/STE-Brand-Nova/watake_ios/commit/13e14e17dd312d663bd3db349ddb85aedb4777bd))
+* **doc-highlight:** mode stay active, tooltip, expert highlight ([c79fded](https://github.com/STE-Brand-Nova/watake_ios/commit/c79fded7b7c54615c9a360e22bd328fbbe686476))
+* **folder:** add folder icon representation option ([480c315](https://github.com/STE-Brand-Nova/watake_ios/commit/480c31592f23fb7d640c70be788b3e94216aa207))
+* **folder:** integrate folder icon selection and presentation ([458709a](https://github.com/STE-Brand-Nova/watake_ios/commit/458709a518b546109fa2e23335573bb57ea67687))
+* **icon:** add icon representation option for folder ([5ce8c7e](https://github.com/STE-Brand-Nova/watake_ios/commit/5ce8c7e2296953630045bd0e12192c7ed87db134))
+* **image-viewer:** add image import, edit, annotation support ([7a2143d](https://github.com/STE-Brand-Nova/watake_ios/commit/7a2143d2dc7bda58052ec743c2898876060a2622))
+* **image-viewer:** add image import, edit, annotation support ([1e2d988](https://github.com/STE-Brand-Nova/watake_ios/commit/1e2d98884e73f0fad171aa8796b91f7db05f50f8))
+* **signature:** direct signature context editor ([71e76b6](https://github.com/STE-Brand-Nova/watake_ios/commit/71e76b63b93fde42f0b3749d20eaf0f76732be5a))
+* **signature:** improved signature context editor ([bb3af84](https://github.com/STE-Brand-Nova/watake_ios/commit/bb3af84529ec5c38064b7643f248699947b997eb))
+* **signature:** signature context editor ([319672f](https://github.com/STE-Brand-Nova/watake_ios/commit/319672f6e80adbf7d1174a6f47aee0a0b4ca8558))
+* **viewer:** add page reorganization with original order restore ([2ab7c7d](https://github.com/STE-Brand-Nova/watake_ios/commit/2ab7c7db7bc7abe179c4e37ee19b2bceafd18e09))
+* **viewer:** add page reorganization with original order restore ([a2cffb8](https://github.com/STE-Brand-Nova/watake_ios/commit/a2cffb8da794ddd555b53f362d81e8e745097fa6))
+
+
+### Bug Fixes
+
+* **folder:** duplicate mutation api ([9efe4d4](https://github.com/STE-Brand-Nova/watake_ios/commit/9efe4d4c3d02f105029c0f7a6047f0954a235dd7))
+* **folder:** duplicate mutation api ([b804e15](https://github.com/STE-Brand-Nova/watake_ios/commit/b804e15c650dec42b5a9b8a00e604a406f0e12b4))
+* **lint:** resolve SwiftLint line-length and aspect-ratio violations ([13694bf](https://github.com/STE-Brand-Nova/watake_ios/commit/13694bf0d5f46b2d8a0571c4e6f535530500e6ad))
+
 ## [0.24.0](https://github.com/STE-Brand-Nova/watake_ios/compare/watake-ios-v0.23.0...watake-ios-v0.24.0) (2026-08-23)
 
 
