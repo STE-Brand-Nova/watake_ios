@@ -50,33 +50,11 @@ public actor ArchiveService {
     }
 
     public func rename(folderId: UUID, to name: String) async throws -> Folder {
-        guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
-        guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
-        let updated = Folder(
-            id: folder.id,
-            name: name,
-            colorHex: folder.colorHex,
-            iconId: folder.iconId,
-            createdAt: folder.createdAt
-        )
-        try updated.validate()
-        try await repository.saveFolder(updated)
-        return updated
+        try await persistFolderUpdate(folderId: folderId, name: name)
     }
 
     public func recolor(folderId: UUID, colorHex: String) async throws -> Folder {
-        guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
-        guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
-        let updated = Folder(
-            id: folder.id,
-            name: folder.name,
-            colorHex: colorHex,
-            iconId: folder.iconId,
-            createdAt: folder.createdAt
-        )
-        try updated.validate()
-        try await repository.saveFolder(updated)
-        return updated
+        try await persistFolderUpdate(folderId: folderId, colorHex: colorHex)
     }
 
     public func updateFolder(
@@ -85,13 +63,27 @@ public actor ArchiveService {
         colorHex: String,
         iconId: String
     ) async throws -> Folder {
+        try await persistFolderUpdate(
+            folderId: folderId,
+            name: name,
+            colorHex: colorHex,
+            iconId: iconId
+        )
+    }
+
+    private func persistFolderUpdate(
+        folderId: UUID,
+        name: String? = nil,
+        colorHex: String? = nil,
+        iconId: String? = nil
+    ) async throws -> Folder {
         guard let folder = try await repository.folder(id: folderId) else { throw ArchiveError.folderUnavailable }
         guard folder.deletedAt == nil else { throw ArchiveError.folderTrashed }
         let updated = Folder(
             id: folder.id,
-            name: name,
-            colorHex: colorHex,
-            iconId: iconId,
+            name: name ?? folder.name,
+            colorHex: colorHex ?? folder.colorHex,
+            iconId: iconId ?? folder.iconId,
             createdAt: folder.createdAt
         )
         try updated.validate()

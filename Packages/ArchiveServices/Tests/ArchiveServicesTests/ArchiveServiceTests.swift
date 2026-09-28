@@ -24,6 +24,16 @@ struct ArchiveServiceTests {
         #expect(updated.name == "Tax receipts")
         #expect(updated.colorHex == "#8B5CF6")
         #expect(updated.iconId == "briefcase")
+
+        let renamed = try await service.rename(folderId: created.id, to: "Annual tax receipts")
+        #expect(renamed.name == "Annual tax receipts")
+        #expect(renamed.colorHex == "#8B5CF6")
+        #expect(renamed.iconId == "briefcase")
+
+        let recolored = try await service.recolor(folderId: created.id, colorHex: "#14B8A6")
+        #expect(recolored.name == "Annual tax receipts")
+        #expect(recolored.colorHex == "#14B8A6")
+        #expect(recolored.iconId == "briefcase")
     }
 
     @Test func renameAndStableReorderPersist() async throws {
